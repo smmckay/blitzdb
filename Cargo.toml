@@ -1,0 +1,19 @@
+[workspace]
+members = ["blitzdb-common", "blitzdb-fabric", "blitzdb-server", "blitzdb-client", "blitzdb-prepare"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Steve McKay <steve@b.abbies.us>"]
+edition = "2024"
+readme = "README.md"
+
+[workspace.dependencies]
+anyhow = "1.0"
+ofi-libfabric-sys = {git = "https://github.com/ofiwg/libfabric", rev = "f5d730cbe713cb886ef0f1e0901f85ce228e47ea"}
+chitchat = "0.10"
+tokio = { version = "1", features = ["full"] }
+hex = "0.4"
+
+[profile.release]
+debug = "full"

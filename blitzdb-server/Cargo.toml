@@ -1,0 +1,15 @@
+[package]
+name = "blitzdb-server"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+readme.workspace = true
+
+[dependencies]
+blitzdb-common = { path = "../blitzdb-common" }
+blitzdb-fabric = { path = "../blitzdb-fabric" }
+anyhow = { workspace = true }
+ofi-libfabric-sys = { workspace = true }
+chitchat = { workspace = true }
+tokio = { workspace = true }
+hex = { workspace = true }

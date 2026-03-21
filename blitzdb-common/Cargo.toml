@@ -1,0 +1,11 @@
+[package]
+name = "blitzdb-common"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+chitchat = { workspace = true }
+hostname = "0.4"
+ofi-libfabric-sys = { workspace = true }
+anyhow = { workspace = true }

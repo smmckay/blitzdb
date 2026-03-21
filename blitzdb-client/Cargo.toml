@@ -1,0 +1,17 @@
+[package]
+name = "blitzdb-client"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+blitzdb-common = { path = "../blitzdb-common" }
+blitzdb-fabric = { path = "../blitzdb-fabric" }
+ofi-libfabric-sys = { workspace = true }
+chitchat = { workspace = true }
+tokio = { workspace = true }
+hex = { workspace = true }
+boomphf = { version = "0.6", features = ["serde"] }
+bincode = "1"
+serde = { version = "1", features = ["derive"] }
+anyhow = { workspace = true }
