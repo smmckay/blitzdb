@@ -1,5 +1,4 @@
 use blitzdb_common::*;
-use blitzdb_fabric::FabricEndpoint;
 use boomphf::Mphf;
 use std::fs::File;
 use std::net::SocketAddr;

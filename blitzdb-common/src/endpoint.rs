@@ -2,7 +2,7 @@ use std::ffi::CString;
 use crate::driver::{CqDriver, Request};
 use crate::driver::CQ_SIZE;
 use crate::op::{Op, ReadFuture};
-use blitzdb_common::{FabricError};
+use crate::FabricError;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::ptr;
 use anyhow::Context;

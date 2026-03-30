@@ -6,7 +6,7 @@ use ofi_libfabric_sys::bindgen as ffi;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use blitzdb_common::FabricError;
+use crate::FabricError;
 use log::{error};
 
 /// Drives a libfabric completion queue on a dedicated polling thread.

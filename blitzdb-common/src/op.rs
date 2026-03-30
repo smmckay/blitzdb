@@ -1,4 +1,4 @@
-use blitzdb_common::FabricError;
+use crate::FabricError;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::cell::UnsafeCell;
 use std::future::Future;
@@ -52,12 +52,6 @@ impl Op {
 
 pub struct ReadFuture {
     pub(crate) op: Arc<Op>,
-    //pub(crate) ep: usize,         // *mut fid_ep cast to usize (Send-safe)
-    //pub(crate) cq: usize,         // *mut fid_cq (used only for EAGAIN retry loop)
-    //pub(crate) fi_addr: u64,
-    //pub(crate) remote_offset: u64,
-    //pub(crate) mr_key: u64,
-    //pub(crate) issued: bool,
 }
 
 impl Future for ReadFuture {

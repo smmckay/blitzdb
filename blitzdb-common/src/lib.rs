@@ -1,6 +1,12 @@
 pub mod error;
 pub mod cluster;
 pub mod logging;
+pub mod endpoint;
+mod driver;
+mod op;
+
+pub use endpoint::{FabricEndpoint, FabricMrGuard};
+pub use op::ReadFuture;
 
 use std::hash::Hash;
 use std::io::Write;

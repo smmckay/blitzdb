@@ -259,7 +259,6 @@ dependencies = [
  "anyhow",
  "bincode",
  "blitzdb-common",
- "blitzdb-fabric",
  "boomphf",
  "chitchat",
  "hex",
@@ -275,22 +274,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chitchat",
+ "crossbeam-channel",
  "env_logger",
  "hostname",
- "ofi-libfabric-sys",
- "twox-hash",
-]
-
-[[package]]
-name = "blitzdb-fabric"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blitzdb-common",
- "crossbeam-channel",
  "log",
  "ofi-libfabric-sys",
  "tokio",
+ "twox-hash",
 ]
 
 [[package]]
@@ -313,7 +303,6 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "blitzdb-common",
- "blitzdb-fabric",
  "chitchat",
  "hex",
  "log",

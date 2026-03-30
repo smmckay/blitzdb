@@ -1,5 +1,4 @@
 use blitzdb_common::*;
-use blitzdb_fabric::FabricEndpoint;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::net::SocketAddr;
 use log::info;

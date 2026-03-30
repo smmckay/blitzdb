@@ -7,7 +7,6 @@ readme.workspace = true
 
 [dependencies]
 blitzdb-common = { path = "../blitzdb-common" }
-blitzdb-fabric = { path = "../blitzdb-fabric" }
 anyhow = { workspace = true }
 ofi-libfabric-sys = { workspace = true }
 chitchat = { workspace = true }

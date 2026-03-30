@@ -6,7 +6,6 @@ edition.workspace = true
 
 [dependencies]
 blitzdb-common = { path = "../blitzdb-common" }
-blitzdb-fabric = { path = "../blitzdb-fabric" }
 ofi-libfabric-sys = { workspace = true }
 chitchat = { workspace = true }
 tokio = { workspace = true }
