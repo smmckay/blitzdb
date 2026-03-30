@@ -1,5 +1,6 @@
 use std::ffi::CString;
-use crate::driver::CqDriver;
+use crate::driver::{CqDriver, Request};
+use crate::driver::CQ_SIZE;
 use crate::op::{Op, ReadFuture};
 use blitzdb_common::{FabricError};
 use ofi_libfabric_sys::bindgen as ffi;
@@ -59,7 +60,7 @@ impl FabricEndpoint {
 
             let mut cq_attr: ffi::fi_cq_attr = std::mem::zeroed();
             cq_attr.format = ffi::fi_cq_format_FI_CQ_FORMAT_CONTEXT;
-            cq_attr.size = 64;
+            cq_attr.size = CQ_SIZE;
             let mut cq = ptr::null_mut();
             FabricError::from_ret(ffi::fi_cq_open(domain, &mut cq_attr, &mut cq, ptr::null_mut())).context("fi_cq_open")?;
 
@@ -140,23 +141,55 @@ impl FabricEndpoint {
     ///
     /// Returns a `ReadFuture` that resolves to an owned `Vec<u8>` containing
     /// `len` bytes read from `remote_offset` in the remote MR identified by `mr_key`.
-    pub fn read(
+    pub async fn read(
         &self,
         fi_addr: u64,
         mr_key: u64,
         remote_offset: u64,
         len: usize,
-    ) -> ReadFuture {
-        ReadFuture {
+    ) -> Result<Vec<u8>, FabricError> {
+        let future = ReadFuture {
             op: Op::new(),
-            buf: vec![0u8; len],
+        };
+        let mut buf: Vec<u8> = Vec::with_capacity(len);
+        self._driver.tx.send(Request::Read {
+            op: future.op.clone(),
             ep: self.ep as usize,
-            cq: self.cq as usize,
+            buf_ptr: buf.as_mut_ptr() as usize,
+            len,
             fi_addr,
             remote_offset,
             mr_key,
-            issued: false,
-        }
+        }).await.map_err(|_| FabricError::Unknown(0))?;
+
+        future.await?;
+        unsafe { buf.set_len(len); }
+        Ok(buf)
+    }
+
+    pub async fn readT<T: Copy + Default>(
+        &self,
+        fi_addr: u64,
+        mr_key: u64,
+        remote_offset: u64,
+    ) -> Result<T, FabricError> {
+        let mut result: T = Default::default();
+
+        let future = ReadFuture {
+            op: Op::new(),
+        };
+        self._driver.tx.send(Request::Read {
+            op: future.op.clone(),
+            ep: self.ep as usize,
+            buf_ptr: &raw mut result as usize,
+            len: size_of::<T>(),
+            fi_addr,
+            remote_offset,
+            mr_key,
+        }).await.map_err(|_| FabricError::Unknown(0))?;
+
+        future.await?;
+        Ok(result)
     }
 }
 

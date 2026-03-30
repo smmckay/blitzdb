@@ -1,15 +1,11 @@
+use blitzdb_common::FabricError;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::cell::UnsafeCell;
-use std::ffi::c_int;
 use std::future::Future;
 use std::pin::Pin;
-use std::ptr;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
-use std::thread;
-use std::time::Duration;
-use blitzdb_common::FabricError;
 
 // Sentinel values stored in Op::result.
 pub(crate) const RESULT_PENDING: i32 = 0;
@@ -54,62 +50,27 @@ impl Op {
     }
 }
 
-/// Future for a one-sided `fi_read` that returns an owned buffer on completion.
 pub struct ReadFuture {
     pub(crate) op: Arc<Op>,
-    pub(crate) buf: Vec<u8>,
-    pub(crate) ep: usize,         // *mut fid_ep cast to usize (Send-safe)
-    pub(crate) cq: usize,         // *mut fid_cq (used only for EAGAIN retry loop)
-    pub(crate) fi_addr: u64,
-    pub(crate) remote_offset: u64,
-    pub(crate) mr_key: u64,
-    pub(crate) issued: bool,
+    //pub(crate) ep: usize,         // *mut fid_ep cast to usize (Send-safe)
+    //pub(crate) cq: usize,         // *mut fid_cq (used only for EAGAIN retry loop)
+    //pub(crate) fi_addr: u64,
+    //pub(crate) remote_offset: u64,
+    //pub(crate) mr_key: u64,
+    //pub(crate) issued: bool,
 }
 
 impl Future for ReadFuture {
-    type Output = Result<Vec<u8>, FabricError>;
+    type Output = Result<(), FabricError>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Issue fi_read on first poll.
-        if !self.issued {
-            let ep = self.ep as *mut ffi::fid_ep;
-            let buf_ptr = self.buf.as_mut_ptr() as *mut _;
-            let len = self.buf.len();
-            let fi_addr = self.fi_addr;
-            let remote_offset = self.remote_offset;
-            let mr_key = self.mr_key;
-            let _cq = self.cq as *mut ffi::fid_cq;
-
-            // Clone the Arc to give the poller thread its own reference.
-            // Arc::into_raw bumps the refcount; the thread will call Arc::from_raw to reclaim it.
-            let poller_ref = Arc::clone(&self.op);
-            let ctx = Op::ctx_ptr(&poller_ref);
-            std::mem::forget(poller_ref); // refcount stays elevated until poller reclaims it
-
-            // Issue the read, retrying on EAGAIN (provider establishing connection).
-            loop {
-                match FabricError::from_ret(unsafe { ffi::fi_read(ep, buf_ptr, len, ptr::null_mut(), fi_addr, remote_offset, mr_key, ctx) as c_int }) {
-                    Err(FabricError::Again) => {
-                        thread::sleep(Duration::from_millis(10));
-                        continue;
-                    }
-                    Err(e) => return Poll::Ready(Err(e)),
-                    _ => break,
-                }
-            }
-            self.issued = true;
-        }
-
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // Register waker first, then check result — avoids lost-wakeup race.
         *self.op.waker.lock().unwrap() = Some(cx.waker().clone());
 
         match self.op.result.load(Ordering::SeqCst) {
             RESULT_PENDING => Poll::Pending,
             RESULT_OK => {
-                // Take ownership of the buffer out of self before returning.
-                // SAFETY: we own buf and the DMA is complete.
-                let buf = std::mem::take(&mut self.buf);
-                Poll::Ready(Ok(buf))
+                Poll::Ready(Ok(()))
             }
             err => Poll::Ready(Err(FabricError::from_errno(err.abs() as u32))),
         }

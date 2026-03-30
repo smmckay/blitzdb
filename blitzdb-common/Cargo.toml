@@ -9,3 +9,5 @@ chitchat = { workspace = true }
 hostname = "0.4"
 ofi-libfabric-sys = { workspace = true }
 anyhow = { workspace = true }
+env_logger = { workspace = true }
+twox-hash = {workspace = true}

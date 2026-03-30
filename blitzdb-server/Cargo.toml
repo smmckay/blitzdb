@@ -13,3 +13,4 @@ ofi-libfabric-sys = { workspace = true }
 chitchat = { workspace = true }
 tokio = { workspace = true }
 hex = { workspace = true }
+log = { workspace = true }

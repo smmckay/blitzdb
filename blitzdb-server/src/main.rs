@@ -2,9 +2,12 @@ use blitzdb_common::*;
 use blitzdb_fabric::FabricEndpoint;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::net::SocketAddr;
+use log::info;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    logging::setup_logging();
+
     let mut args = std::env::args().skip(1);
     let prefix = args.next().expect("Usage: blitzdb-server <prefix> [gossip-port]");
     let gossip_port: u16 = args.next().and_then(|s| s.parse().ok()).unwrap_or(10000);
@@ -15,21 +18,21 @@ async fn main() -> anyhow::Result<()> {
         std::fs::read(format!("{prefix}.index")).expect("Failed to read .index file");
     let heap_data = std::fs::read(format!("{prefix}.heap")).expect("Failed to read .heap file");
     let n = index_data.len() / 12;
-    println!("Loaded index: {n} entries ({} bytes)", index_data.len());
-    println!("Loaded heap: {} bytes", heap_data.len());
+    info!("Loaded index: {n} entries ({} bytes)", index_data.len());
+    info!("Loaded heap: {} bytes", heap_data.len());
 
     // Initialize libfabric. FabricEndpoint owns the resources and starts the CQ driver.
     let endpoint = FabricEndpoint::new()?;
-    println!("Libfabric initialized (tcp provider, RDM endpoint, RMA enabled)");
+    info!("Libfabric initialized (tcp provider, RDM endpoint, RMA enabled)");
 
     // Register memory regions (read-only for remote clients).
     let index_mr_guard = endpoint.mr_reg(0xBDB1, &index_data, ffi::FI_REMOTE_READ as u64)?;
     let index_mr_key = index_mr_guard.mr_key;
-    println!("Registered index MR: key=0x{index_mr_key:X}");
+    info!("Registered index MR: key=0x{index_mr_key:X}");
 
-    let heap_mr_key = endpoint.mr_reg(0xBDB2, &heap_data, ffi::FI_REMOTE_READ as u64)?;
-    let heap_mr_key = heap_mr_key.mr_key;
-    println!("Registered heap MR:  key=0x{heap_mr_key:X}");
+    let heap_mr_guard = endpoint.mr_reg(0xBDB2, &heap_data, ffi::FI_REMOTE_READ as u64)?;
+    let heap_mr_key = heap_mr_guard.mr_key;
+    info!("Registered heap MR:  key=0x{heap_mr_key:X}");
 
     let ep_addr = endpoint.get_ep_addr()?;
 
@@ -41,11 +44,11 @@ async fn main() -> anyhow::Result<()> {
         (KEY_EP_ADDR.to_string(), hex::encode(&ep_addr)),
     ];
     let handle = cluster::start_chitchat("server", gossip_addr, vec![], initial_key_values).await?;
-    println!("Chitchat listening on {gossip_addr}");
-    println!("Server ready. Waiting for clients...");
+    info!("Chitchat listening on {gossip_addr}");
+    info!("Server ready. Waiting for clients...");
 
     tokio::signal::ctrl_c().await?;
-    println!("\nShutting down...");
+    info!("Shutting down...");
     handle.shutdown().await?;
 
     Ok(())

@@ -4,9 +4,12 @@ use boomphf::Mphf;
 use std::fs::File;
 use std::net::SocketAddr;
 use std::time::Duration;
+use log::info;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    logging::setup_logging();
+
     let mut args = std::env::args().skip(1);
     let mph_path =
         args.next().expect("Usage: blitzdb-client <mph-file> <key> [seed] [gossip-port]");
@@ -19,11 +22,11 @@ async fn main() -> anyhow::Result<()> {
     let mph: Mphf<Vec<u8>> =
         bincode::deserialize_from(File::open(&mph_path).expect("Failed to open .mph file"))
             .expect("Failed to deserialize MPH");
-    println!("Loaded MPH from {mph_path}");
+    info!("Loaded MPH from {mph_path}");
 
 
     let handle = cluster::start_chitchat("client", gossip_addr, vec![seed.to_string()], vec![]).await?;
-    println!("Chitchat started, seed={seed}, waiting for server...");
+    info!("Chitchat started, seed={seed}, waiting for server...");
 
     let (index_mr_key, heap_mr_key, ep_addr_bytes): (u64, u64, Vec<u8>) = loop {
         let chitchat = handle.chitchat();
@@ -51,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     };
-    println!("Discovered server: index_mr_key=0x{index_mr_key:X}, heap_mr_key=0x{heap_mr_key:X}");
+    info!("Discovered server: index_mr_key=0x{index_mr_key:X}, heap_mr_key=0x{heap_mr_key:X}");
 
     // Initialize libfabric via the async endpoint wrapper.
     let endpoint = FabricEndpoint::new()?;
@@ -60,23 +63,22 @@ async fn main() -> anyhow::Result<()> {
     // Compute slot via MPH.
     let key_bytes = key.as_bytes().to_vec();
     let slot = mph.hash(&key_bytes) as usize;
-    println!("MPH slot for \"{key}\": {slot}");
+    info!("MPH slot for \"{key}\": {slot}");
 
-    // Step 1: async read of 12-byte index entry → (heap_offset: u64, value_len: u32).
-    let index_bytes = endpoint
-        .read(fi_addr, index_mr_key, (slot * 12) as u64, 12)
+    // Step 1: async read of index entry
+    let entry_sz = size_of::<IndexEntry>();
+    let index_entry = endpoint
+        .readT::<IndexEntry>(fi_addr, index_mr_key, (slot * entry_sz) as u64)
         .await
         .expect("fi_read (index) failed");
-    let value_offset = u64::from_le_bytes(index_bytes[0..8].try_into().unwrap());
-    let value_len = u32::from_le_bytes(index_bytes[8..12].try_into().unwrap()) as usize;
-    println!("Index entry: heap_offset={value_offset}, value_len={value_len}");
+    info!("Index entry: {index_entry}");
 
     // Step 2: async read of value from heap.
     let value_bytes = endpoint
-        .read(fi_addr, heap_mr_key, value_offset, value_len)
+        .read(fi_addr, heap_mr_key, index_entry.offset, index_entry.len as usize)
         .await
         .expect("fi_read (heap) failed");
-    println!("{key} = {}", String::from_utf8_lossy(&value_bytes));
+    info!("{key} = {}", String::from_utf8_lossy(&value_bytes));
 
     handle.shutdown().await?;
 

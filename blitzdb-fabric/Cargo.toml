@@ -9,3 +9,5 @@ blitzdb-common = { path = "../blitzdb-common" }
 ofi-libfabric-sys = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
+log = { workspace = true }
+crossbeam-channel = {workspace = true}
