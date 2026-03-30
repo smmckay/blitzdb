@@ -16,6 +16,9 @@ log = { workspace = true }
 sd-notify = "0.5"
 
 [dev-dependencies]
+blitzdb-client = { path = "../blitzdb-client" }
+boomphf = { version = "0.6", features = ["serde"] }
+bincode = "1"
 parquet = "58"
 arrow-array = "58"
 arrow-schema = "58"

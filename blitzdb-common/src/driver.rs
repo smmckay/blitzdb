@@ -155,7 +155,7 @@ impl CqDriver {
                         }
                     } else if ret == -(ffi::FI_EAGAIN as isize) {
                         // No completions available — yield the CPU briefly.
-                        if (dispatched == 0) {
+                        if dispatched == 0 {
                             std::hint::spin_loop();
                         }
                     } else if ret == -(ffi::FI_EAVAIL as isize) {

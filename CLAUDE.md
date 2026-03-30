@@ -46,3 +46,7 @@ BlitzDB is a high-performance key-value store designed for RDMA networks (AWS EF
 **Crate layout:**
 - `blitzdb-server/` — server binary; currently bootstraps libfabric via `ofi-libfabric-sys` raw FFI bindings (`ofi_libfabric_sys::bindgen`)
 - The `ofi-libfabric-sys` dependency is pinned to a specific git rev of the upstream libfabric repo
+
+## Making Changes
+
+After making code changes, run `cargo test` to verify correctness.

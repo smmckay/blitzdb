@@ -1,6 +1,8 @@
 use arrow_array::BinaryArray;
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field, Schema};
+use blitzdb_client::BlitzClient;
+use boomphf::Mphf;
 use parquet::arrow::ArrowWriter;
 use std::fs::File;
 use std::net::UdpSocket;
@@ -92,7 +94,7 @@ fn integration() {
     let msg = std::str::from_utf8(&buf[..n]).unwrap();
     assert!(msg.contains("READY=1"), "unexpected notify message: {msg:?}");
 
-    // 6. Run one client lookup per key-value pair.
+    // 6. Use BlitzClient to look up each key-value pair.
     let mph_path = dir.path().join("test.mph");
     let seed = format!("127.0.0.1:{gossip_port}");
     let cases = [
@@ -103,25 +105,21 @@ fn integration() {
         ("fast", "speed"),
     ];
 
-    for (key, want_value) in cases {
-        let client_gossip_port = free_udp_port();
-        let output = Command::new(cargo_bin("blitzdb-client"))
-            .arg(mph_path.to_str().unwrap())
-            .arg(key)
-            .arg(&seed)
-            .arg(client_gossip_port.to_string())
-            .env("RUST_LOG", "info")
-            .output()
-            .expect("failed to run blitzdb-client");
+    let mph: Mphf<Vec<u8>> =
+        bincode::deserialize_from(File::open(&mph_path).unwrap()).unwrap();
+    let client_gossip_port = free_udp_port();
 
-        // env_logger writes to stderr; the key lookup result line is logged with info!.
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let want = format!("{key} = {want_value}");
-        assert!(
-            stderr.contains(&want),
-            "lookup '{key}': expected '{want}' in client stderr\n--- stderr ---\n{stderr}"
-        );
-    }
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let client = BlitzClient::connect(mph, &seed, client_gossip_port)
+            .await
+            .expect("BlitzClient::connect failed");
+        for (key, want_value) in cases {
+            let value = client.get(key.as_bytes()).await.expect("get failed");
+            assert_eq!(value, want_value.as_bytes(), "lookup '{key}' returned wrong value");
+        }
+        client.shutdown().await.expect("shutdown failed");
+    });
 
     // 7. Shut down the server.
     server.kill().ok();
