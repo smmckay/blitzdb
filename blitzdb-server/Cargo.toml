@@ -14,3 +14,10 @@ chitchat = { workspace = true }
 tokio = { workspace = true }
 hex = { workspace = true }
 log = { workspace = true }
+sd-notify = "0.5"
+
+[dev-dependencies]
+parquet = "58"
+arrow-array = "58"
+arrow-schema = "58"
+tempfile = "3"

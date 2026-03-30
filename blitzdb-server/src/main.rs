@@ -46,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let handle = cluster::start_chitchat("server", gossip_addr, vec![], initial_key_values).await?;
     info!("Chitchat listening on {gossip_addr}");
     info!("Server ready. Waiting for clients...");
+    let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
 
     tokio::signal::ctrl_c().await?;
     info!("Shutting down...");
