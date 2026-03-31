@@ -6,11 +6,10 @@ edition.workspace = true
 
 [dependencies]
 chitchat = { workspace = true }
-hostname = "0.4"
+hostname = { workspace = true }
 ofi-libfabric-sys = { workspace = true }
 anyhow = { workspace = true }
 env_logger = { workspace = true }
 twox-hash = {workspace = true}
 tokio = { workspace = true }
 log = { workspace = true }
-crossbeam-channel = { workspace = true }

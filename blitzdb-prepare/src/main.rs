@@ -33,7 +33,7 @@ fn main() {
 
     // --- Build MPH ---
     let keys: Vec<Vec<u8>> = pairs.iter().map(|(k, _)| k.clone()).collect();
-    let mph = Mphf::<Vec<u8>>::new_parallel(2.0, &keys, None);
+    let mph = Mphf::<Vec<u8>>::new_parallel(1.0, &keys, None);
     println!("Built minimal perfect hash over {n} keys");
 
     // --- Build index and heap ---

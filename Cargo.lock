@@ -263,8 +263,6 @@ dependencies = [
  "chitchat",
  "hex",
  "log",
- "ofi-libfabric-sys",
- "serde",
  "tokio",
 ]
 
@@ -274,7 +272,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chitchat",
- "crossbeam-channel",
  "env_logger",
  "hostname",
  "log",
@@ -291,8 +288,6 @@ dependencies = [
  "blitzdb-common",
  "boomphf",
  "parquet",
- "serde",
- "twox-hash",
 ]
 
 [[package]]
@@ -306,7 +301,6 @@ dependencies = [
  "blitzdb-client",
  "blitzdb-common",
  "boomphf",
- "chitchat",
  "hex",
  "log",
  "ofi-libfabric-sys",
@@ -467,15 +461,6 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-
-[[package]]
-name = "crossbeam-channel"
-version = "0.5.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82b8f8f868b36967f9606790d1903570de9ceaf870a7bf9fbbd3016d636a2cb2"
-dependencies = [
- "crossbeam-utils",
-]
 
 [[package]]
 name = "crossbeam-deque"

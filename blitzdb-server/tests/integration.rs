@@ -2,7 +2,6 @@ use arrow_array::BinaryArray;
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field, Schema};
 use blitzdb_client::BlitzClient;
-use boomphf::Mphf;
 use parquet::arrow::ArrowWriter;
 use std::fs::File;
 use std::net::UdpSocket;
@@ -95,7 +94,6 @@ fn integration() {
     assert!(msg.contains("READY=1"), "unexpected notify message: {msg:?}");
 
     // 6. Use BlitzClient to look up each key-value pair.
-    let mph_path = dir.path().join("test.mph");
     let seed = format!("127.0.0.1:{gossip_port}");
     let cases = [
         ("hello", "world"),
@@ -105,19 +103,22 @@ fn integration() {
         ("fast", "speed"),
     ];
 
-    let mph: Mphf<Vec<u8>> =
-        bincode::deserialize_from(File::open(&mph_path).unwrap()).unwrap();
     let client_gossip_port = free_udp_port();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-        let client = BlitzClient::connect(mph, &seed, client_gossip_port)
+        let client = BlitzClient::connect(&seed, client_gossip_port)
             .await
             .expect("BlitzClient::connect failed");
         for (key, want_value) in cases {
             let value = client.get(key.as_bytes()).await.expect("get failed");
-            assert_eq!(value, want_value.as_bytes(), "lookup '{key}' returned wrong value");
+            assert!(value.is_some(), "lookup '{key}' returned no value");
+            assert_eq!(value.unwrap(), want_value.as_bytes(), "lookup '{key}' returned wrong value");
         }
+
+        let value = client.get(b"nonexistent").await.expect("get failed");
+        assert!(value.is_none(), "lookup 'nonexistent' returned a value");
+        
         client.shutdown().await.expect("shutdown failed");
     });
 

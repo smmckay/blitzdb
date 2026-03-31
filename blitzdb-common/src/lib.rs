@@ -19,6 +19,8 @@ pub const KEY_EP_ADDR: &str = "ep_addr";
 pub const KEY_INDEX_MR_KEY: &str = "index_mr_key";
 pub const KEY_HEAP_MR_KEY: &str = "heap_mr_key";
 pub const KEY_NUM_KEYS: &str = "num_keys";
+pub const KEY_MPH_MR_KEY: &str = "mph_mr_key";
+pub const KEY_MPH_LEN: &str = "mph_len";
 
 pub use error::FabricError;
 pub type Result<T> = std::result::Result<T, FabricError>;

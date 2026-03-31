@@ -7,7 +7,5 @@ edition.workspace = true
 [dependencies]
 blitzdb-common = { path = "../blitzdb-common" }
 boomphf = { version = "0.6", features = ["serde"] }
-bincode = "1"
-serde = { version = "1", features = ["derive"] }
-parquet = "58"
-twox-hash = { workspace = true }
+bincode = { workspace = true }
+parquet = { workspace = true }

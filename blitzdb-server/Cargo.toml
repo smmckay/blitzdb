@@ -9,17 +9,16 @@ readme.workspace = true
 blitzdb-common = { path = "../blitzdb-common" }
 anyhow = { workspace = true }
 ofi-libfabric-sys = { workspace = true }
-chitchat = { workspace = true }
 tokio = { workspace = true }
 hex = { workspace = true }
 log = { workspace = true }
-sd-notify = "0.5"
+sd-notify = { workspace = true }
 
 [dev-dependencies]
 blitzdb-client = { path = "../blitzdb-client" }
-boomphf = { version = "0.6", features = ["serde"] }
-bincode = "1"
-parquet = "58"
-arrow-array = "58"
-arrow-schema = "58"
-tempfile = "3"
+boomphf = { workspace = true }
+bincode = { workspace = true }
+parquet = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+tempfile = { workspace = true }
