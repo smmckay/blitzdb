@@ -29,14 +29,12 @@ fn free_udp_port() -> u16 {
     UdpSocket::bind("0.0.0.0:0").unwrap().local_addr().unwrap().port()
 }
 
-fn write_parquet(dir: &TempDir) -> PathBuf {
-    let path = dir.path().join("test.parquet");
+fn write_parquet(dir: &TempDir, keys: Vec<&[u8]>, values: Vec<&[u8]>, name: &str) -> PathBuf {
+    let path = dir.path().join(format!("{name}.parquet"));
     let schema = Arc::new(Schema::new(vec![
         Field::new("key", DataType::Binary, false),
         Field::new("value", DataType::Binary, false),
     ]));
-    let keys: Vec<&[u8]> = vec![b"hello", b"foo", b"blitz", b"rdma", b"fast"];
-    let values: Vec<&[u8]> = vec![b"world", b"bar", b"fast", b"network", b"speed"];
     let batch = RecordBatch::try_new(
         schema.clone(),
         vec![
@@ -52,52 +50,87 @@ fn write_parquet(dir: &TempDir) -> PathBuf {
     path
 }
 
+struct ServerHandle {
+    child: std::process::Child,
+}
+
+impl ServerHandle {
+    fn spawn(
+        dir: &TempDir,
+        keys: Vec<&[u8]>,
+        values: Vec<&[u8]>,
+        dataset: &str,
+        gossip_port: u16,
+        seed: Option<u16>,
+    ) -> Self {
+        let parquet_path = write_parquet(dir, keys, values, dataset);
+        let prefix = dir.path().join(dataset);
+        blitzdb_prepare::prepare(&parquet_path, &prefix).expect("blitzdb-prepare failed");
+
+        let notify_sock_path = dir.path().join(format!("notify-{dataset}.sock"));
+        let notify_sock = UnixDatagram::bind(&notify_sock_path).unwrap();
+        notify_sock
+            .set_read_timeout(Some(Duration::from_secs(15)))
+            .unwrap();
+
+        let mut cmd = Command::new(cargo_bin("blitzdb-server"));
+        cmd.arg(prefix.to_str().unwrap())
+            .arg("--dataset")
+            .arg(dataset)
+            .arg(gossip_port.to_string())
+            .env("NOTIFY_SOCKET", &notify_sock_path)
+            .env("RUST_LOG", "error");
+
+        if let Some(seed_port) = seed {
+            cmd.env("BLITZDB_SEED", format!("127.0.0.1:{seed_port}"));
+        }
+
+        let child = cmd.spawn().expect("failed to spawn blitzdb-server");
+
+        let mut buf = [0u8; 256];
+        let n = notify_sock
+            .recv(&mut buf)
+            .expect("timed out waiting for READY=1 from server");
+        let msg = std::str::from_utf8(&buf[..n]).unwrap();
+        assert!(msg.contains("READY=1"), "unexpected notify message: {msg:?}");
+
+        Self { child }
+    }
+}
+
+impl Drop for ServerHandle {
+    fn drop(&mut self) {
+        self.child.kill().ok();
+        self.child.wait().ok();
+    }
+}
+
 #[test]
 fn integration() {
     let dir = TempDir::new().unwrap();
 
-    // 1. Generate parquet fixture in-process.
-    let parquet_path = write_parquet(&dir);
-    let prefix = dir.path().join("test");
+    let gossip_port1 = free_udp_port();
+    let gossip_port2 = free_udp_port();
 
-    // 2. Run blitzdb-prepare to produce .mph / .index / .heap.
-    blitzdb_prepare::prepare(&parquet_path, &prefix).expect("blitzdb-prepare failed");
+    let _server1 = ServerHandle::spawn(
+        &dir,
+        vec![b"hello", b"foo", b"blitz", b"rdma", b"fast"],
+        vec![b"world", b"bar", b"fast", b"network", b"speed"],
+        "ds1",
+        gossip_port1,
+        None,
+    );
 
-    // 3. Create the NOTIFY_SOCKET listener before spawning the server.
-    let notify_sock_path = dir.path().join("notify.sock");
-    let notify_sock = UnixDatagram::bind(&notify_sock_path).unwrap();
-    notify_sock
-        .set_read_timeout(Some(Duration::from_secs(15)))
-        .unwrap();
+    let _server2 = ServerHandle::spawn(
+        &dir,
+        vec![b"alpha", b"beta", b"gamma"],
+        vec![b"one", b"two", b"three"],
+        "ds2",
+        gossip_port2,
+        Some(gossip_port1),
+    );
 
-    // 4. Spawn blitzdb-server on an ephemeral gossip port.
-    let gossip_port = free_udp_port();
-    let mut server = Command::new(cargo_bin("blitzdb-server"))
-        .arg(prefix.to_str().unwrap())
-        .arg(gossip_port.to_string())
-        .env("NOTIFY_SOCKET", &notify_sock_path)
-        .env("RUST_LOG", "error")
-        .spawn()
-        .expect("failed to spawn blitzdb-server");
-
-    // 5. Block until READY=1 arrives (or timeout).
-    let mut buf = [0u8; 256];
-    let n = notify_sock
-        .recv(&mut buf)
-        .expect("timed out waiting for READY=1 from server");
-    let msg = std::str::from_utf8(&buf[..n]).unwrap();
-    assert!(msg.contains("READY=1"), "unexpected notify message: {msg:?}");
-
-    // 6. Use BlitzClient to look up each key-value pair.
-    let seed = format!("127.0.0.1:{gossip_port}");
-    let cases = [
-        ("hello", "world"),
-        ("foo", "bar"),
-        ("blitz", "fast"),
-        ("rdma", "network"),
-        ("fast", "speed"),
-    ];
-
+    let seed = format!("127.0.0.1:{gossip_port1}");
     let client_gossip_port = free_udp_port();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -105,19 +138,29 @@ fn integration() {
         let client = BlitzClient::connect(&seed, client_gossip_port)
             .await
             .expect("BlitzClient::connect failed");
-        for (key, want_value) in cases {
-            let value = client.get(key.as_bytes()).await.expect("get failed");
-            assert!(value.is_some(), "lookup '{key}' returned no value");
-            assert_eq!(value.unwrap(), want_value.as_bytes(), "lookup '{key}' returned wrong value");
+
+        // Query ds1
+        let ds1 = client.dataset("ds1").expect("dataset ds1 not found");
+        for (key, want) in [("hello", "world"), ("foo", "bar"), ("blitz", "fast"), ("rdma", "network"), ("fast", "speed")] {
+            let value = ds1.get(key.as_bytes()).await.expect("get failed");
+            assert!(value.is_some(), "ds1 lookup '{key}' returned no value");
+            assert_eq!(value.unwrap(), want.as_bytes(), "ds1 lookup '{key}' wrong value");
+        }
+        let value = ds1.get(b"nonexistent").await.expect("get failed");
+        assert!(value.is_none(), "ds1 lookup 'nonexistent' returned a value");
+
+        // Query ds2
+        let ds2 = client.dataset("ds2").expect("dataset ds2 not found");
+        for (key, want) in [("alpha", "one"), ("beta", "two"), ("gamma", "three")] {
+            let value = ds2.get(key.as_bytes()).await.expect("get failed");
+            assert!(value.is_some(), "ds2 lookup '{key}' returned no value");
+            assert_eq!(value.unwrap(), want.as_bytes(), "ds2 lookup '{key}' wrong value");
         }
 
-        let value = client.get(b"nonexistent").await.expect("get failed");
-        assert!(value.is_none(), "lookup 'nonexistent' returned a value");
-        
+        // ds1 keys should not exist in ds2
+        let value = ds2.get(b"hello").await.expect("get failed");
+        assert!(value.is_none(), "ds2 should not contain ds1 key 'hello'");
+
         client.shutdown().await.expect("shutdown failed");
     });
-
-    // 7. Shut down the server.
-    server.kill().ok();
-    server.wait().ok();
 }
