@@ -139,8 +139,11 @@ fn integration() {
             .await
             .expect("BlitzClient::connect failed");
 
+        // Wait for the background watcher to discover servers
+        let ds1 = client.dataset("ds1");
+        wait_for_dataset(&ds1, b"hello", Duration::from_secs(10)).await;
+
         // Query ds1
-        let ds1 = client.dataset("ds1").expect("dataset ds1 not found");
         for (key, want) in [("hello", "world"), ("foo", "bar"), ("blitz", "fast"), ("rdma", "network"), ("fast", "speed")] {
             let value = ds1.get(key.as_bytes()).await.expect("get failed");
             assert!(value.is_some(), "ds1 lookup '{key}' returned no value");
@@ -150,7 +153,9 @@ fn integration() {
         assert!(value.is_none(), "ds1 lookup 'nonexistent' returned a value");
 
         // Query ds2
-        let ds2 = client.dataset("ds2").expect("dataset ds2 not found");
+        let ds2 = client.dataset("ds2");
+        wait_for_dataset(&ds2, b"alpha", Duration::from_secs(10)).await;
+
         for (key, want) in [("alpha", "one"), ("beta", "two"), ("gamma", "three")] {
             let value = ds2.get(key.as_bytes()).await.expect("get failed");
             assert!(value.is_some(), "ds2 lookup '{key}' returned no value");
@@ -163,4 +168,72 @@ fn integration() {
 
         client.shutdown().await.expect("shutdown failed");
     });
+}
+
+#[test]
+fn late_join() {
+    let dir = TempDir::new().unwrap();
+
+    let gossip_port1 = free_udp_port();
+    let seed = format!("127.0.0.1:{gossip_port1}");
+
+    // Start server1 so the client has a seed to connect to
+    let _server1 = ServerHandle::spawn(
+        &dir,
+        vec![b"hello"],
+        vec![b"world"],
+        "ds1",
+        gossip_port1,
+        None,
+    );
+
+    let client_gossip_port = free_udp_port();
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+        let client = BlitzClient::connect(&seed, client_gossip_port)
+            .await
+            .expect("BlitzClient::connect failed");
+
+        // ds_late doesn't exist yet — get() should return Ok(None)
+        let ds_late = client.dataset("ds_late");
+        let value = ds_late.get(b"alpha").await.expect("get failed");
+        assert!(value.is_none(), "ds_late should return None before server is up");
+
+        // Now start a server publishing ds_late
+        let gossip_port2 = free_udp_port();
+        let _server2 = ServerHandle::spawn(
+            &dir,
+            vec![b"alpha", b"beta"],
+            vec![b"one", b"two"],
+            "ds_late",
+            gossip_port2,
+            Some(gossip_port1),
+        );
+
+        // Poll until the watcher picks up the new server
+        wait_for_dataset(&ds_late, b"alpha", Duration::from_secs(10)).await;
+
+        let value = ds_late.get(b"alpha").await.expect("get failed");
+        assert_eq!(value.unwrap(), b"one");
+
+        let value = ds_late.get(b"beta").await.expect("get failed");
+        assert_eq!(value.unwrap(), b"two");
+
+        client.shutdown().await.expect("shutdown failed");
+    });
+}
+
+/// Poll until a dataset returns a value for the given key, or panic after timeout.
+async fn wait_for_dataset(ds: &blitzdb_client::Dataset, key: &[u8], timeout: Duration) {
+    let start = tokio::time::Instant::now();
+    loop {
+        if let Ok(Some(_)) = ds.get(key).await {
+            return;
+        }
+        if start.elapsed() > timeout {
+            panic!("timed out waiting for dataset to become available");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
 }
