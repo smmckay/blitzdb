@@ -16,8 +16,7 @@ sd-notify = { workspace = true }
 
 [dev-dependencies]
 blitzdb-client = { path = "../blitzdb-client" }
-boomphf = { workspace = true }
-bincode = { workspace = true }
+blitzdb-prepare = { path = "../blitzdb-prepare" }
 parquet = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
