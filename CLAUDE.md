@@ -53,5 +53,8 @@ BlitzDB is a high-performance key-value store designed for RDMA networks (AWS EF
 When adding a new dependency, add it to `Cargo.toml` in the workspace root. Other crates in the workspace should use
 `workspace = true` for all dependencies.
 
-### Testing
-After making code changes, run `cargo test` to verify correctness.
+### Testing and merging
+1. Run `cargo build` and `cargo test` locally; fix any issues that arise
+2. Create a PR
+3. Fix any CI problems
+4. Merge the PR
