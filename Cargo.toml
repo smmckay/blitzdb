@@ -21,7 +21,7 @@ crossbeam-channel = "0.5"
 boomphf = { version = "0.6", features = ["serde"] }
 hostname = "0.4"
 sd-notify = "0.5"
-bincode = "1"
+bincode = "3"
 parquet = "58"
 arrow-array = "58"
 arrow-schema = "58"
