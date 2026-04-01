@@ -19,7 +19,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         id: rust-cache
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install system dependencies
         if: steps.rust-cache.outputs.cache-hit != 'true'
