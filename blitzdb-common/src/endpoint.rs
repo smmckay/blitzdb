@@ -35,6 +35,11 @@ impl Drop for FabricMrGuard<'_> {
     }
 }
 
+// Safety: FabricEndpoint's raw pointers are libfabric handles that are thread-safe.
+// The CQ driver thread already accesses the endpoint from a separate thread.
+unsafe impl Send for FabricEndpoint {}
+unsafe impl Sync for FabricEndpoint {}
+
 impl FabricEndpoint {
     pub fn new() -> anyhow::Result<Self> {
         unsafe {
