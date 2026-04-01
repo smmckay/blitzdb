@@ -61,12 +61,7 @@ fn integration() {
     let prefix = dir.path().join("test");
 
     // 2. Run blitzdb-prepare to produce .mph / .index / .heap.
-    let status = Command::new(cargo_bin("blitzdb-prepare"))
-        .arg(&parquet_path)
-        .arg(&prefix)
-        .status()
-        .unwrap();
-    assert!(status.success(), "blitzdb-prepare failed");
+    blitzdb_prepare::prepare(&parquet_path, &prefix).expect("blitzdb-prepare failed");
 
     // 3. Create the NOTIFY_SOCKET listener before spawning the server.
     let notify_sock_path = dir.path().join("notify.sock");

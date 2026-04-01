@@ -6,6 +6,7 @@ edition.workspace = true
 
 [dependencies]
 blitzdb-common = { path = "../blitzdb-common" }
+anyhow = { workspace = true }
 boomphf = { version = "0.6", features = ["serde"] }
 bincode = { workspace = true }
 parquet = { workspace = true }

@@ -284,6 +284,7 @@ dependencies = [
 name = "blitzdb-prepare"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bincode",
  "blitzdb-common",
  "boomphf",
@@ -297,10 +298,9 @@ dependencies = [
  "anyhow",
  "arrow-array",
  "arrow-schema",
- "bincode",
  "blitzdb-client",
  "blitzdb-common",
- "boomphf",
+ "blitzdb-prepare",
  "hex",
  "log",
  "ofi-libfabric-sys",
