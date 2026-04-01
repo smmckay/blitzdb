@@ -1,11 +1,48 @@
-## TODO list
+## TODO for 1.0
 
-* chitchat clustering
-* (dataset, shard, version) keyspace
-  * index
-  * data
-* client fetch index
-* client RDMA values
+### Bug Fixes
+- [ ] Extract actual errno from `fi_cq_err_entry.err` instead of hardcoding -1 (`blitzdb-common/src/driver.rs:87,128`)
+
+### Error Handling & Robustness
+- [ ] Server startup: return errors instead of panicking on missing `.mph` / `.index` / `.heap` files
+- [ ] Client: handle MPH miss in `try_hash` gracefully instead of unwrapping (`blitzdb-client/src/lib.rs:72`)
+- [ ] Add configurable timeout on RDMA reads (client can hang indefinitely today)
+- [ ] Validate file sizes and integrity at load time
+
+### Testing
+- [ ] Negative test cases: missing keys, server crash, read timeout
+- [ ] Unit tests for `IndexEntry`, `Op`, `FabricError`
+- [ ] Performance benchmarks (latency, throughput)
+
+### Observability
+- [ ] Expose metrics: request latency, error rates, CQ completions (Prometheus endpoint or similar)
+- [ ] Structured logging (replace ad-hoc `log!` calls with consistent fields)
+
+### Configuration
+- [ ] Config file (TOML or YAML) for: gossip port/seeds, dataset paths, RDMA provider, timeouts
+- [ ] Remove hardcoded ports and paths from binaries
+
+### Cluster & Sharding
+- [ ] Client failover across multiple servers discovered via chitchat
+- [ ] `(dataset, shard, version)` keyspace — multi-dataset and multi-shard support
+  - [ ] index sharding
+  - [ ] data sharding
+- [ ] Shard assignment and discovery via chitchat gossip
+
+### Data & Ingestion
+- [ ] Atomic dataset switchover / versioning (hot-reload without downtime)
+- [ ] Streaming or incremental ingestion (beyond full-batch Parquet rebuild)
+
+### Client
+- [ ] Batch `get_many()` operation to pipeline multiple RDMA reads
+- [ ] Optional client-side index entry cache to avoid redundant RDMA reads per lookup
+
+### Security
+- [ ] Authentication (API key or mutual TLS)
+
+### Documentation
+- [ ] `///` rustdoc on all public types and functions
+- [ ] Deployment guide (EFA / InfiniBand setup, dataset prep workflow, cluster bring-up)
 
 ## Provider Differences to Abstract Over
 
