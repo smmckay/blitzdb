@@ -15,12 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool rsync
-
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install system dependencies
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool rsync
 
       - name: Test
         run: cargo test --workspace --features ofi-libfabric-sys/vendored
