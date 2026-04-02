@@ -21,3 +21,4 @@ parquet = { workspace = true }
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 tempfile = { workspace = true }
+rand = { workspace = true }

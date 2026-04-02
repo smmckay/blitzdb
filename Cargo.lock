@@ -305,6 +305,7 @@ dependencies = [
  "log",
  "ofi-libfabric-sys",
  "parquet",
+ "rand",
  "sd-notify",
  "tempfile",
  "tokio",

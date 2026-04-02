@@ -26,6 +26,7 @@ parquet = "58"
 arrow-array = "58"
 arrow-schema = "58"
 tempfile = "3"
+rand = "0.9"
 
 [profile.release]
 debug = "full"
