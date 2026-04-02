@@ -3,6 +3,7 @@ use crate::driver::{CqDriver, Request};
 use crate::driver::CQ_SIZE;
 use crate::op::{Op, ReadFuture};
 use crate::FabricError;
+use log::info;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::ptr;
 use anyhow::Context;
@@ -43,19 +44,15 @@ unsafe impl Sync for FabricEndpoint {}
 impl FabricEndpoint {
     pub fn new() -> anyhow::Result<Self> {
         unsafe {
-            let hints = ffi::fi_allocinfo();
-            assert!(!hints.is_null(), "fi_allocinfo failed");
-
-            (*hints).caps = (ffi::FI_MSG | ffi::FI_RMA) as u64;
-            (*(*hints).ep_attr).type_ = ffi::fi_ep_type_FI_EP_RDM;
-            (*(*hints).domain_attr).mr_mode = 0;
-            let prov_name = CString::new("tcp")?;
-            (*(*hints).fabric_attr).prov_name = prov_name.into_raw() as *mut i8;
-
-            let mut info = ptr::null_mut();
             let version = ffi::fi_version();
-            FabricError::from_ret(ffi::fi_getinfo(version, ptr::null(), ptr::null(), 0, hints, &mut info)).context("fi_getinfo")?;
-            ffi::fi_freeinfo(hints);
+            let info = Self::getinfo(version, "efa")
+                .or_else(|efa_err| {
+                    info!("EFA provider unavailable ({efa_err:#}), falling back to TCP");
+                    Self::getinfo(version, "tcp")
+                })
+                .context("fi_getinfo: no usable provider (tried efa, tcp)")?;
+            let prov = std::ffi::CStr::from_ptr((*(*info).fabric_attr).prov_name);
+            info!("Using provider: {}", prov.to_string_lossy());
 
             let mut fabric = ptr::null_mut();
             FabricError::from_ret(ffi::fi_fabric((*info).fabric_attr, &mut fabric, ptr::null_mut())).context("fi_fabric")?;
@@ -195,6 +192,26 @@ impl FabricEndpoint {
 
         future.await?;
         Ok(result)
+    }
+    unsafe fn getinfo(version: u32, provider: &str) -> anyhow::Result<*mut ffi::fi_info> {
+        unsafe {
+            let hints = ffi::fi_allocinfo();
+            assert!(!hints.is_null(), "fi_allocinfo failed");
+
+            (*hints).caps = (ffi::FI_MSG | ffi::FI_RMA) as u64;
+            (*(*hints).ep_attr).type_ = ffi::fi_ep_type_FI_EP_RDM;
+            (*(*hints).domain_attr).mr_mode = 0;
+            let prov_name = CString::new(provider)?;
+            (*(*hints).fabric_attr).prov_name = prov_name.into_raw() as *mut i8;
+
+            let mut info = ptr::null_mut();
+            let ret = FabricError::from_ret(ffi::fi_getinfo(
+                version, ptr::null(), ptr::null(), 0, hints, &mut info,
+            ));
+            ffi::fi_freeinfo(hints);
+            ret.context(format!("fi_getinfo({provider})"))?;
+            Ok(info)
+        }
     }
 }
 
