@@ -1,0 +1,17 @@
+[package]
+name = "blitzdb-loadtest"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+blitzdb-client = { path = "../blitzdb-client" }
+blitzdb-prepare = { path = "../blitzdb-prepare" }
+tokio = { workspace = true }
+rand = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+parquet = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+anyhow = { workspace = true }

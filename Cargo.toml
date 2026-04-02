@@ -1,5 +1,5 @@
 [workspace]
-members = ["blitzdb-common", "blitzdb-server", "blitzdb-client", "blitzdb-prepare"]
+members = ["blitzdb-common", "blitzdb-server", "blitzdb-client", "blitzdb-prepare", "blitzdb-loadtest"]
 resolver = "3"
 
 [workspace.package]

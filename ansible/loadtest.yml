@@ -1,0 +1,484 @@
+---
+# BlitzDB two-instance load test with perf profiling.
+#
+# Prerequisites:
+#   pip install ansible boto3 botocore
+#   ansible-galaxy collection install amazon.aws
+#   AWS credentials configured (env vars, ~/.aws/credentials, or instance profile)
+#
+# Usage:
+#   ansible-playbook ansible/loadtest.yml
+#
+# Optional variables:
+#   -e instance_type=c7g.16xlarge   (default)
+#   -e region=us-east-1             (default)
+#   -e repo_url=https://github.com/smmckay/blitzdb.git
+#   -e repo_branch=main
+#   -e test_duration=60
+
+- name: Provision EC2 infrastructure
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    instance_type: "c7g.16xlarge"
+    region: "us-east-1"
+    repo_url: "https://github.com/smmckay/blitzdb.git"
+    repo_branch: "main"
+    test_duration: 60
+    key_name: "blitzdb-loadtest-{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    sg_name: "blitzdb-loadtest-{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    pg_name: "blitzdb-loadtest-{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+    results_dir: "{{ playbook_dir }}/../results/{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+  tasks:
+    - name: Create local results directory
+      file:
+        path: "{{ results_dir }}/{{ item }}"
+        state: directory
+      loop: [server, client]
+
+    - name: Create EC2 key pair
+      amazon.aws.ec2_key:
+        name: "{{ key_name }}"
+        region: "{{ region }}"
+      register: ec2_key
+
+    - name: Save private key
+      copy:
+        content: "{{ ec2_key.key.private_key }}"
+        dest: "{{ results_dir }}/{{ key_name }}.pem"
+        mode: "0600"
+      when: ec2_key.key.private_key is defined
+
+    - name: Get caller public IP for SSH access
+      uri:
+        url: https://checkip.amazonaws.com
+        return_content: true
+      register: my_ip
+
+    - name: Look up default VPC
+      amazon.aws.ec2_vpc_net_info:
+        region: "{{ region }}"
+        filters:
+          isDefault: "true"
+      register: vpc_info
+
+    - name: Set VPC ID
+      set_fact:
+        vpc_id: "{{ vpc_info.vpcs[0].id }}"
+
+    - name: Look up subnets in default VPC
+      amazon.aws.ec2_vpc_subnet_info:
+        region: "{{ region }}"
+        filters:
+          vpc-id: "{{ vpc_id }}"
+      register: subnet_info
+
+    - name: Pick first subnet
+      set_fact:
+        subnet_id: "{{ subnet_info.subnets[0].id }}"
+
+    - name: Create placement group
+      amazon.aws.ec2_placement_group:
+        name: "{{ pg_name }}"
+        strategy: cluster
+        region: "{{ region }}"
+        state: present
+
+    - name: Create security group
+      amazon.aws.ec2_security_group:
+        name: "{{ sg_name }}"
+        description: "BlitzDB load test - ephemeral"
+        vpc_id: "{{ vpc_id }}"
+        region: "{{ region }}"
+        rules:
+          - proto: tcp
+            ports: [22]
+            cidr_ip: "{{ my_ip.content | trim }}/32"
+            rule_desc: SSH from controller
+          - proto: all
+            group_name: "{{ sg_name }}"
+            rule_desc: All traffic within group (gossip + EFA)
+      register: sg
+
+    - name: Look up latest Amazon Linux 2023 ARM64 AMI
+      amazon.aws.ec2_ami_info:
+        region: "{{ region }}"
+        owners: [amazon]
+        filters:
+          name: "al2023-ami-2023*-kernel-*-arm64"
+          architecture: arm64
+          state: available
+      register: ami_info
+
+    - name: Select latest AMI
+      set_fact:
+        ami_id: "{{ (ami_info.images | sort(attribute='creation_date') | last).image_id }}"
+
+    - name: Launch server instance
+      amazon.aws.ec2_instance:
+        name: "blitzdb-loadtest-server"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_id }}"
+        key_name: "{{ key_name }}"
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ subnet_id }}"
+        security_group: "{{ sg.group_id }}"
+        placement:
+          group_name: "{{ pg_name }}"
+        network:
+          interfaces:
+            - device_index: 0
+              subnet_id: "{{ subnet_id }}"
+              groups: ["{{ sg.group_id }}"]
+              interface_type: efa
+        wait: true
+        wait_timeout: 300
+        state: running
+        tags:
+          Role: blitzdb-server
+          Project: blitzdb-loadtest
+      register: server_instance
+
+    - name: Launch client instance
+      amazon.aws.ec2_instance:
+        name: "blitzdb-loadtest-client"
+        instance_type: "{{ instance_type }}"
+        image_id: "{{ ami_id }}"
+        key_name: "{{ key_name }}"
+        region: "{{ region }}"
+        vpc_subnet_id: "{{ subnet_id }}"
+        security_group: "{{ sg.group_id }}"
+        placement:
+          group_name: "{{ pg_name }}"
+        network:
+          interfaces:
+            - device_index: 0
+              subnet_id: "{{ subnet_id }}"
+              groups: ["{{ sg.group_id }}"]
+              interface_type: efa
+        wait: true
+        wait_timeout: 300
+        state: running
+        tags:
+          Role: blitzdb-client
+          Project: blitzdb-loadtest
+      register: client_instance
+
+    - name: Set instance facts
+      set_fact:
+        server_public_ip: "{{ server_instance.instances[0].public_ip_address }}"
+        server_private_ip: "{{ server_instance.instances[0].private_ip_address }}"
+        server_instance_id: "{{ server_instance.instances[0].instance_id }}"
+        client_public_ip: "{{ client_instance.instances[0].public_ip_address }}"
+        client_instance_id: "{{ client_instance.instances[0].instance_id }}"
+
+    - name: Add server to inventory
+      add_host:
+        name: "{{ server_public_ip }}"
+        groups: blitzdb_server
+        ansible_user: ec2-user
+        ansible_ssh_private_key_file: "{{ results_dir }}/{{ key_name }}.pem"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        server_private_ip: "{{ server_private_ip }}"
+
+    - name: Add client to inventory
+      add_host:
+        name: "{{ client_public_ip }}"
+        groups: blitzdb_client
+        ansible_user: ec2-user
+        ansible_ssh_private_key_file: "{{ results_dir }}/{{ key_name }}.pem"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        server_private_ip: "{{ server_private_ip }}"
+
+    - name: Persist resource IDs for cleanup
+      set_fact:
+        cleanup_info:
+          server_instance_id: "{{ server_instance_id }}"
+          client_instance_id: "{{ client_instance_id }}"
+          key_name: "{{ key_name }}"
+          sg_id: "{{ sg.group_id }}"
+          sg_name: "{{ sg_name }}"
+          pg_name: "{{ pg_name }}"
+          region: "{{ region }}"
+          results_dir: "{{ results_dir }}"
+
+- name: Bootstrap both instances
+  hosts: blitzdb_server:blitzdb_client
+  become: true
+  gather_facts: true
+  vars:
+    repo_url: "https://github.com/smmckay/blitzdb.git"
+    repo_branch: "main"
+  tasks:
+    - name: Wait for SSH
+      wait_for_connection:
+        timeout: 120
+
+    - name: Install system dependencies
+      dnf:
+        name:
+          - "@Development Tools"
+          - cmake
+          - autoconf
+          - automake
+          - libtool
+          - rsync
+          - perf
+          - clang
+          - git
+        state: present
+
+    - name: Download EFA installer
+      get_url:
+        url: "https://efa-installer.amazonaws.com/aws-efa-installer-latest.tar.gz"
+        dest: /tmp/aws-efa-installer.tar.gz
+
+    - name: Extract EFA installer
+      unarchive:
+        src: /tmp/aws-efa-installer.tar.gz
+        dest: /tmp
+        remote_src: true
+
+    - name: Install EFA driver
+      shell: |
+        cd /tmp/aws-efa-installer && ./efa_installer.sh -y
+      args:
+        creates: /opt/amazon/efa/bin/fi_info
+
+    - name: Add EFA to library path
+      copy:
+        content: "/opt/amazon/efa/lib64"
+        dest: /etc/ld.so.conf.d/efa.conf
+      notify: ldconfig
+
+    - name: Install Rust via rustup
+      become: false
+      shell: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      args:
+        creates: "/home/ec2-user/.cargo/bin/rustc"
+
+    - name: Clone blitzdb repo
+      become: false
+      git:
+        repo: "{{ repo_url }}"
+        dest: /home/ec2-user/blitzdb
+        version: "{{ repo_branch }}"
+
+    - name: Build blitzdb (release)
+      become: false
+      shell: |
+        source ~/.cargo/env
+        cargo build --release --workspace
+      args:
+        chdir: /home/ec2-user/blitzdb
+        executable: /bin/bash
+      environment:
+        PATH: "/opt/amazon/efa/bin:{{ ansible_env.PATH }}"
+        PKG_CONFIG_PATH: "/opt/amazon/efa/lib64/pkgconfig"
+
+  handlers:
+    - name: ldconfig
+      command: ldconfig
+
+- name: Generate dataset on server
+  hosts: blitzdb_server
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Generate parquet and prepare dataset
+      shell: |
+        source ~/.cargo/env
+        ./target/release/blitzdb-loadtest --generate /tmp/blitzdb-data
+      args:
+        chdir: /home/ec2-user/blitzdb
+        executable: /bin/bash
+      environment:
+        PATH: "/opt/amazon/efa/bin:{{ ansible_env.PATH }}"
+        LD_LIBRARY_PATH: "/opt/amazon/efa/lib64"
+
+- name: Run server under perf
+  hosts: blitzdb_server
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Set kernel perf permissions
+      sysctl:
+        name: kernel.perf_event_paranoid
+        value: "-1"
+        state: present
+
+    - name: Start server under perf record
+      shell: |
+        nohup perf record -g -o /tmp/blitzdb-server.perf.data -- \
+          /home/ec2-user/blitzdb/target/release/blitzdb-server \
+            /tmp/blitzdb-data/load --dataset load 10000 \
+          > /tmp/server-stdout.log 2> /tmp/server-stderr.log &
+        echo $!
+      args:
+        executable: /bin/bash
+      environment:
+        RUST_LOG: info
+        LD_LIBRARY_PATH: "/opt/amazon/efa/lib64"
+      register: server_pid
+
+    - name: Save server PID
+      set_fact:
+        blitzdb_server_pid: "{{ server_pid.stdout | trim }}"
+
+    - name: Wait for server to be ready
+      wait_for:
+        port: 10000
+        host: 0.0.0.0
+        timeout: 120
+        state: started
+
+- name: Run client under perf
+  hosts: blitzdb_client
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Set kernel perf permissions
+      sysctl:
+        name: kernel.perf_event_paranoid
+        value: "-1"
+        state: present
+
+    - name: Run load test under perf record
+      shell: |
+        perf record -g -o /tmp/blitzdb-client.perf.data -- \
+          /home/ec2-user/blitzdb/target/release/blitzdb-loadtest \
+            {{ server_private_ip }}:10000 \
+          > /tmp/client-stdout.log 2> /tmp/client-stderr.log
+      args:
+        executable: /bin/bash
+      environment:
+        RUST_LOG: info
+        LD_LIBRARY_PATH: "/opt/amazon/efa/lib64"
+      timeout: 300
+
+- name: Stop server
+  hosts: blitzdb_server
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Send SIGINT to server (graceful shutdown)
+      shell: "kill -INT $(pgrep -f blitzdb-server) || true"
+
+    - name: Wait for server process to exit
+      shell: "while pgrep -f blitzdb-server > /dev/null; do sleep 1; done"
+      args:
+        executable: /bin/bash
+      timeout: 30
+      ignore_errors: true
+
+    - name: Kill remaining server processes
+      shell: "pkill -9 -f blitzdb-server || true"
+
+- name: Convert perf output on server
+  hosts: blitzdb_server
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run perf script (server)
+      shell: |
+        perf script -i /tmp/blitzdb-server.perf.data > /tmp/blitzdb-server.perf.script
+      timeout: 300
+
+- name: Convert perf output on client
+  hosts: blitzdb_client
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Run perf script (client)
+      shell: |
+        perf script -i /tmp/blitzdb-client.perf.data > /tmp/blitzdb-client.perf.script
+      timeout: 300
+
+- name: Fetch results from server
+  hosts: blitzdb_server
+  become: false
+  gather_facts: false
+  vars:
+    results_dir: "{{ hostvars['localhost']['cleanup_info']['results_dir'] }}"
+  tasks:
+    - name: Fetch server logs and perf data
+      fetch:
+        src: "/tmp/{{ item }}"
+        dest: "{{ results_dir }}/server/"
+        flat: true
+      loop:
+        - server-stdout.log
+        - server-stderr.log
+        - blitzdb-server.perf.data
+        - blitzdb-server.perf.script
+
+- name: Fetch results from client
+  hosts: blitzdb_client
+  become: false
+  gather_facts: false
+  vars:
+    results_dir: "{{ hostvars['localhost']['cleanup_info']['results_dir'] }}"
+  tasks:
+    - name: Fetch client logs and perf data
+      fetch:
+        src: "/tmp/{{ item }}"
+        dest: "{{ results_dir }}/client/"
+        flat: true
+      loop:
+        - client-stdout.log
+        - client-stderr.log
+        - blitzdb-client.perf.data
+        - blitzdb-client.perf.script
+
+- name: Terminate instances and cleanup
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    info: "{{ cleanup_info }}"
+  tasks:
+    - name: Terminate server instance
+      amazon.aws.ec2_instance:
+        instance_ids: ["{{ info.server_instance_id }}"]
+        region: "{{ info.region }}"
+        state: terminated
+        wait: true
+
+    - name: Terminate client instance
+      amazon.aws.ec2_instance:
+        instance_ids: ["{{ info.client_instance_id }}"]
+        region: "{{ info.region }}"
+        state: terminated
+        wait: true
+
+    - name: Delete key pair
+      amazon.aws.ec2_key:
+        name: "{{ info.key_name }}"
+        region: "{{ info.region }}"
+        state: absent
+
+    - name: Delete security group
+      amazon.aws.ec2_security_group:
+        group_id: "{{ info.sg_id }}"
+        region: "{{ info.region }}"
+        state: absent
+      retries: 5
+      delay: 15
+      until: sg_delete is not failed
+      register: sg_delete
+
+    - name: Delete placement group
+      amazon.aws.ec2_placement_group:
+        name: "{{ info.pg_name }}"
+        region: "{{ info.region }}"
+        state: absent
+      retries: 5
+      delay: 15
+      until: pg_delete is not failed
+      register: pg_delete
+
+    - name: Report results location
+      debug:
+        msg: "Results saved to {{ info.results_dir }}"
