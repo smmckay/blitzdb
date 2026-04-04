@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 // Sentinel values stored in Op::result.
-pub(crate) const RESULT_PENDING: i32 = 0;
-pub(crate) const RESULT_OK: i32 = 1;
+const RESULT_PENDING: i32 = 0;
+const RESULT_OK: i32 = 1;
 
 /// Per-operation state shared between the issuing Future and the CQ polling thread.
 ///
@@ -43,10 +43,11 @@ impl Op {
         })
     }
 
-    /// Returns the fi_context pointer to pass as `context` to fi_read/fi_write.
-    /// The caller must ensure the Arc stays alive until the CQ completion arrives.
-    pub(crate) fn ctx_ptr(op: &Arc<Self>) -> *mut std::ffi::c_void {
-        op.ctx.get() as *mut _
+    pub(crate) fn complete(&self, result: Result<(), FabricError>) {
+        self.result.store(if result.is_ok() { RESULT_OK } else { -(result.unwrap_err().to_errno() as i32) }, Ordering::SeqCst);
+        if let Some(waker) = self.waker.lock().unwrap().take() {
+            waker.wake();
+        }
     }
 }
 
