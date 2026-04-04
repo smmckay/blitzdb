@@ -4,6 +4,7 @@ pub mod logging;
 pub mod endpoint;
 mod driver;
 mod op;
+mod buffer_pool;
 
 pub use endpoint::{FabricEndpoint, FabricMrGuard};
 pub use op::ReadFuture;

@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use parquet::basic::{Compression, ZstdLevel};
+use parquet::file::properties::WriterProperties;
 
 const NUM_KEYS: u64 = 100_000_000;
 const BATCH_SIZE: u64 = 1_000_000;
@@ -43,7 +45,10 @@ fn write_load_parquet(path: &Path) {
         Field::new("value", DataType::Binary, false),
     ]));
     let file = File::create(path).unwrap();
-    let mut writer = ArrowWriter::try_new(file, schema.clone(), None).unwrap();
+    let props = WriterProperties::builder()
+        .set_compression(Compression::ZSTD(ZstdLevel::default()))
+        .build();
+    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
 
     let mut batch_start = 0u64;
     while batch_start < NUM_KEYS {

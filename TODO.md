@@ -6,6 +6,8 @@
 ### libfabric
 - [ ] support verbs and efa providers
 - [ ] Add configurable timeout on RDMA reads (client can hang indefinitely today)
+- [ ] receive buffer pooling
+- [ ] deal with virtual address mode
 
 ### Testing
 - [ ] Negative test cases: missing keys, server crash, read timeout

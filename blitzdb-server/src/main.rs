@@ -1,30 +1,37 @@
 use blitzdb_common::*;
+use clap::Parser;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::net::SocketAddr;
 use log::info;
+
+#[derive(Parser)]
+#[command(about = "BlitzDB server")]
+struct Args {
+    /// Path prefix for .index, .heap, .mph files
+    prefix: String,
+
+    /// Dataset name
+    #[arg(long)]
+    dataset: String,
+
+    /// Seed node address for gossip cluster
+    #[arg(long, env = "BLITZDB_SEED")]
+    seed: Option<String>,
+
+    /// Gossip port
+    #[arg(long, default_value_t = 10000)]
+    gossip_port: u16,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
 
-    let mut args = std::env::args().skip(1);
-    let prefix = args.next().expect("Usage: blitzdb-server <prefix> --dataset <name> [gossip-port]");
-
-    let mut dataset = None;
-    let mut seed = None;
-    let mut gossip_port: u16 = 10000;
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--dataset" => dataset = Some(args.next().expect("--dataset requires a value")),
-            "--seed" => seed = Some(args.next().expect("--seed requires a value")),
-            other => gossip_port = other.parse().expect("invalid gossip-port"),
-        }
-    }
-    let dataset = dataset.expect("--dataset <name> is required");
-    // Allow seed via env var as well (useful for tests).
-    let seed = seed.or_else(|| std::env::var("BLITZDB_SEED").ok());
-    let seed_nodes: Vec<String> = seed.into_iter().collect();
-    let gossip_addr: SocketAddr = format!("0.0.0.0:{gossip_port}").parse().unwrap();
+    let args = Args::parse();
+    let prefix = &args.prefix;
+    let dataset = &args.dataset;
+    let seed_nodes: Vec<String> = args.seed.into_iter().collect();
+    let gossip_addr: SocketAddr = format!("0.0.0.0:{}", args.gossip_port).parse().unwrap();
 
     // Load index, heap, and mph files.
     let index_data =
@@ -37,8 +44,8 @@ async fn main() -> anyhow::Result<()> {
     info!("Loaded MPH: {} bytes", mph_data.len());
 
     // Initialize libfabric. FabricEndpoint owns the resources and starts the CQ driver.
-    let endpoint = FabricEndpoint::new()?;
-    info!("Libfabric initialized (tcp provider, RDM endpoint, RMA enabled)");
+    let endpoint = FabricEndpoint::new(1024)?;
+    info!("Libfabric initialized");
 
     // Register memory regions (read-only for remote clients).
     let index_mr_guard = endpoint.mr_reg(0xBDB1, &index_data, ffi::FI_REMOTE_READ as u64)?;

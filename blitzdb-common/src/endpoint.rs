@@ -1,4 +1,5 @@
-use std::ffi::CString;
+use std::ffi::{c_int, CString};
+use std::marker::PhantomData;
 use crate::driver::{CqDriver, Request};
 use crate::driver::CQ_SIZE;
 use crate::op::{Op, ReadFuture};
@@ -7,25 +8,49 @@ use log::info;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::ptr;
 use anyhow::Context;
+use ofi_libfabric_sys::bindgen::{FI_READ, FI_RECV, FI_SEND, FI_WRITE};
+use crate::buffer_pool::BufferPool;
 
 /// Wraps a libfabric endpoint with async read/write operations.
 ///
 /// The `CqDriver` inside polls the completion queue on a dedicated thread and
 /// wakes Tokio tasks when their operations complete.
 pub struct FabricEndpoint {
+    // FIXME: wrap all these guys and implement drop
     info: *mut ffi::fi_info,
     fabric: *mut ffi::fid_fabric,
     domain: *mut ffi::fid_domain,
     cq: *mut ffi::fid_cq,
     av: *mut ffi::fid_av,
     ep: *mut ffi::fid_ep,
+    buffer_mr: *mut ffi::fid_mr,
     _driver: CqDriver,
 }
 
 pub struct FabricMrGuard<'a> {
     mr: *mut ffi::fid_mr,
     pub mr_key: u64,
-    _mr_buf: &'a [u8],
+    _mr_buf: PhantomData<&'a [u8]>,
+}
+
+impl<'a> FabricMrGuard<'a> {
+    fn new(domain: *mut ffi::fid_domain, key: u64, buf: &'a [u8], access: u64) -> Result<FabricMrGuard<'a>, FabricError>{
+        let mut mr: *mut ffi::fid_mr = ptr::null_mut();
+        let mr_key = FabricError::from_ret(unsafe {
+            ffi::fi_mr_reg(
+                domain,
+                buf.as_ptr() as *const _,
+                buf.len(),
+                access,
+                0,
+                key,
+                0,
+                &mut mr,
+                ptr::null_mut(),
+            )
+        }).map(|_| unsafe { ffi::fi_mr_key(mr) })?;
+        Ok(FabricMrGuard { mr, mr_key, _mr_buf: PhantomData::default() })
+    }
 }
 
 impl Drop for FabricMrGuard<'_> {
@@ -42,10 +67,10 @@ unsafe impl Send for FabricEndpoint {}
 unsafe impl Sync for FabricEndpoint {}
 
 impl FabricEndpoint {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(max_msg_size: usize) -> anyhow::Result<Self> {
         unsafe {
             let version = ffi::fi_version();
-            let info = Self::getinfo(version, "efa")
+            let info = Self::getinfo(version, "efa-direct")
                 .or_else(|efa_err| {
                     info!("EFA provider unavailable ({efa_err:#}), falling back to TCP");
                     Self::getinfo(version, "tcp")
@@ -61,7 +86,7 @@ impl FabricEndpoint {
             FabricError::from_ret(ffi::fi_domain(fabric, info, &mut domain, ptr::null_mut())).context("fi_domain")?;
 
             let mut cq_attr: ffi::fi_cq_attr = std::mem::zeroed();
-            cq_attr.format = ffi::fi_cq_format_FI_CQ_FORMAT_CONTEXT;
+            cq_attr.format = ffi::fi_cq_format_FI_CQ_FORMAT_DATA;
             cq_attr.size = CQ_SIZE;
             let mut cq = ptr::null_mut();
             FabricError::from_ret(ffi::fi_cq_open(domain, &mut cq_attr, &mut cq, ptr::null_mut())).context("fi_cq_open")?;
@@ -77,7 +102,22 @@ impl FabricEndpoint {
             FabricError::from_ret(ffi::fi_ep_bind(ep, &mut (*av).fid, 0)).context("fi_ep_bind(av)")?;
             FabricError::from_ret(ffi::fi_enable(ep)).context("fi_enable")?;
 
-            let _driver = CqDriver::spawn(cq)?;
+            let buffer_pool = BufferPool::new(max_msg_size, CQ_SIZE);
+            let mut mr: *mut ffi::fid_mr = ptr::null_mut();
+            FabricError::from_ret(
+                ffi::fi_mr_reg(
+                    domain,
+                    buffer_pool.get_base() as *const _,
+                    buffer_pool.get_len(),
+                    (FI_READ | FI_WRITE | FI_SEND | FI_RECV) as u64,
+                    0,
+                    buffer_pool.get_base() as usize as u64,
+                    0,
+                    &mut mr,
+                    ptr::null_mut(),
+                )
+            )?;
+            let _driver = CqDriver::spawn(cq, buffer_pool, mr)?;
 
             Ok(FabricEndpoint {
                 info,
@@ -86,6 +126,7 @@ impl FabricEndpoint {
                 cq,
                 av,
                 ep,
+                buffer_mr: mr,
                 _driver
             })
         }
@@ -109,21 +150,7 @@ impl FabricEndpoint {
     }
 
     pub fn mr_reg<'a>(&self, key: u64, buf: &'a [u8], access: u64) -> Result<FabricMrGuard<'a>, FabricError> {
-        let mut mr: *mut ffi::fid_mr = ptr::null_mut();
-        let mr_key = FabricError::from_ret(unsafe {
-            ffi::fi_mr_reg(
-                self.domain,
-                buf.as_ptr() as *const _,
-                buf.len(),
-                access,
-                0,
-                key,
-                0,
-                &mut mr,
-                ptr::null_mut(),
-            )
-        }).map(|_| unsafe { ffi::fi_mr_key(mr) })?;
-        Ok(FabricMrGuard { mr, mr_key, _mr_buf: buf })
+        FabricMrGuard::new(self.domain, key, buf, access)
     }
 
     /// Get the local endpoint address (opaque bytes for address exchange).
@@ -200,9 +227,12 @@ impl FabricEndpoint {
 
             (*hints).caps = (ffi::FI_MSG | ffi::FI_RMA) as u64;
             (*(*hints).ep_attr).type_ = ffi::fi_ep_type_FI_EP_RDM;
-            (*(*hints).domain_attr).mr_mode = 0;
+            (*(*hints).domain_attr).resource_mgmt = ffi::fi_resource_mgmt_FI_RM_ENABLED;
+            (*(*hints).domain_attr).threading = ffi::fi_threading_FI_THREAD_DOMAIN;
+            (*(*hints).domain_attr).mr_mode = (ffi::FI_MR_LOCAL | ffi::FI_MR_ALLOCATED | ffi::FI_MR_PROV_KEY | ffi::FI_MR_VIRT_ADDR) as c_int;
             let prov_name = CString::new(provider)?;
             (*(*hints).fabric_attr).prov_name = prov_name.into_raw() as *mut i8;
+            (*hints).mode = ffi::FI_CONTEXT2;
 
             let mut info = ptr::null_mut();
             let ret = FabricError::from_ret(ffi::fi_getinfo(
@@ -220,24 +250,13 @@ impl Drop for FabricEndpoint {
         self._driver.stop();
 
         unsafe {
-            if !self.ep.is_null() {
-                ffi::fi_close(&mut (*self.ep).fid);
-            }
-            if !self.av.is_null() {
-                ffi::fi_close(&mut (*self.av).fid);
-            }
-            if !self.cq.is_null() {
-                ffi::fi_close(&mut (*self.cq).fid);
-            }
-            if !self.domain.is_null() {
-                ffi::fi_close(&mut (*self.domain).fid);
-            }
-            if !self.fabric.is_null() {
-                ffi::fi_close(&mut (*self.fabric).fid);
-            }
-            if !self.info.is_null() {
-                ffi::fi_freeinfo(self.info);
-            }
+            ffi::fi_close(&mut (*self.buffer_mr).fid);
+            ffi::fi_close(&mut (*self.ep).fid);
+            ffi::fi_close(&mut (*self.av).fid);
+            ffi::fi_close(&mut (*self.cq).fid);
+            ffi::fi_close(&mut (*self.domain).fid);
+            ffi::fi_close(&mut (*self.fabric).fid);
+            ffi::fi_freeinfo(self.info);
         }
     }
 }
