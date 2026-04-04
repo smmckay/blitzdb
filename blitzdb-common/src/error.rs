@@ -6,6 +6,7 @@ use std::fmt;
 /// Libfabric returns negative errno on failure (e.g. `-FI_EAGAIN`).
 /// Use [`FabricError::from_ret`] to convert a raw return value into a `Result`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(u32)]
 pub enum FabricError {
     // ── POSIX errors commonly returned by libfabric ──────────────────────────
     /// Resource temporarily unavailable; caller should retry.
@@ -88,6 +89,45 @@ impl FabricError {
             Ok(ret)
         } else {
             Err(Self::from_errno(ret.abs() as u32))
+        }
+    }
+
+    /// Convert this error back to a **positive** errno value.
+    pub fn to_errno(&self) -> u32 {
+        match self {
+            Self::Again        => crate::ffi::FI_EAGAIN,
+            Self::Already      => crate::ffi::FI_EALREADY,
+            Self::Fault        => crate::ffi::FI_EFAULT,
+            Self::Invalid      => crate::ffi::FI_EINVAL,
+            Self::NoMem        => crate::ffi::FI_ENOMEM,
+            Self::Access       => crate::ffi::FI_EACCES,
+            Self::ConnReset    => crate::ffi::FI_ECONNRESET,
+            Self::ConnRefused  => crate::ffi::FI_ECONNREFUSED,
+            Self::TimedOut     => crate::ffi::FI_ETIMEDOUT,
+            Self::NetUnreach   => crate::ffi::FI_ENETUNREACH,
+            Self::HostUnreach  => crate::ffi::FI_EHOSTUNREACH,
+            Self::OpNotSupp    => crate::ffi::FI_EOPNOTSUPP,
+            Self::NoData       => crate::ffi::FI_ENODATA,
+            Self::NoMsg        => crate::ffi::FI_ENOMSG,
+            Self::Cancelled    => crate::ffi::FI_ECANCELED,
+            Self::Io           => crate::ffi::FI_EIO,
+            Self::Other        => crate::ffi::FI_EOTHER,
+            Self::TooSmall     => crate::ffi::FI_ETOOSMALL,
+            Self::BadState     => crate::ffi::FI_EOPBADSTATE,
+            Self::ErrorAvail   => crate::ffi::FI_EAVAIL,
+            Self::BadFlags     => crate::ffi::FI_EBADFLAGS,
+            Self::NoEq         => crate::ffi::FI_ENOEQ,
+            Self::BadDomain    => crate::ffi::FI_EDOMAIN,
+            Self::NoCq         => crate::ffi::FI_ENOCQ,
+            Self::Crc          => crate::ffi::FI_ECRC,
+            Self::Truncated    => crate::ffi::FI_ETRUNC,
+            Self::NoKey        => crate::ffi::FI_ENOKEY,
+            Self::NoAv         => crate::ffi::FI_ENOAV,
+            Self::Overrun      => crate::ffi::FI_EOVERRUN,
+            Self::NoRx         => crate::ffi::FI_ENORX,
+            Self::NoMr         => crate::ffi::FI_ENOMR,
+            Self::FirewallAddr => crate::ffi::FI_EFIREWALLADDR,
+            Self::Unknown(e)   => *e,
         }
     }
 
