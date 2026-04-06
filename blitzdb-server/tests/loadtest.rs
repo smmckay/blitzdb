@@ -117,11 +117,10 @@ impl ServerHandle {
 
         let child = Command::new(cargo_bin("blitzdb-server"))
             .arg(prefix.to_str().unwrap())
-            .arg("--dataset")
-            .arg(dataset)
-            .arg(gossip_port.to_string())
+            .arg("--dataset").arg(dataset)
+            .arg("--gossip-port").arg(gossip_port.to_string())
             .env("NOTIFY_SOCKET", &notify_sock_path)
-            .env("RUST_LOG", "error")
+            .env("RUST_LOG", "info")
             .spawn()
             .expect("failed to spawn blitzdb-server");
 

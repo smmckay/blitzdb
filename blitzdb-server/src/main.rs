@@ -15,7 +15,7 @@ struct Args {
     dataset: String,
 
     /// Seed node address for gossip cluster
-    #[arg(long, env = "BLITZDB_SEED")]
+    #[arg(long)]
     seed: Option<String>,
 
     /// Gossip port
