@@ -75,14 +75,13 @@ impl ServerHandle {
 
         let mut cmd = Command::new(cargo_bin("blitzdb-server"));
         cmd.arg(prefix.to_str().unwrap())
-            .arg("--dataset")
-            .arg(dataset)
-            .arg(gossip_port.to_string())
+            .arg("--dataset").arg(dataset)
+            .arg("--gossip-port").arg(gossip_port.to_string())
             .env("NOTIFY_SOCKET", &notify_sock_path)
-            .env("RUST_LOG", "error");
+            .env("RUST_LOG", "info");
 
         if let Some(seed_port) = seed {
-            cmd.env("BLITZDB_SEED", format!("127.0.0.1:{seed_port}"));
+            cmd.arg("--seed").arg(format!("127.0.0.1:{seed_port}"));
         }
 
         let child = cmd.spawn().expect("failed to spawn blitzdb-server");

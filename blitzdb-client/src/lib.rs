@@ -37,7 +37,7 @@ impl BlitzClient {
                 .await?;
         info!("Chitchat started, seed={seed}");
 
-        let endpoint = Arc::new(FabricEndpoint::new()?);
+        let endpoint = Arc::new(FabricEndpoint::new(4096)?);
         let servers: Arc<RwLock<HashMap<String, ServerConn>>> =
             Arc::new(RwLock::new(HashMap::new()));
 

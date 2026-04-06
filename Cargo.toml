@@ -27,6 +27,7 @@ arrow-array = "58"
 arrow-schema = "58"
 tempfile = "3"
 rand = "0.9"
+clap = { version = "4", features = ["derive", "env"] }
 
 [profile.release]
 debug = "full"

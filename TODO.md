@@ -6,6 +6,8 @@
 ### libfabric
 - [ ] support verbs and efa providers
 - [ ] Add configurable timeout on RDMA reads (client can hang indefinitely today)
+- [ ] receive buffer pooling
+- [ ] deal with virtual address mode
 
 ### Testing
 - [ ] Negative test cases: missing keys, server crash, read timeout
@@ -19,6 +21,7 @@
 ### Server
 - [ ] Server startup: return errors instead of panicking on missing `.mph` / `.index` / `.heap` files
 - [ ] Validate file sizes and integrity at load time
+- [ ] For the efa-direct fabric, the target side of RMA operation must insert the initiator side’s address into AV before the RMA operation is kicked off, due to a current device limitation. The same limitation applies to the efa fabric when the FI_OPT_EFA_HOMOGENEOUS_PEERS option is set as true.
 
 ### Observability
 - [ ] Expose metrics: request latency, error rates, CQ completions (Prometheus endpoint or similar)
@@ -31,6 +34,7 @@
 ### Cluster & Sharding
 - [ ] Client load balancing and failover across multiple servers discovered via chitchat
 - [ ] `(dataset, shard, version)` keyspace — multi-dataset and multi-shard support
+- [ ] LeMonHash dataset format
 
 ## Future
 

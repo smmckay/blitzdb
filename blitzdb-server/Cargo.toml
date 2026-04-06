@@ -13,6 +13,7 @@ tokio = { workspace = true }
 hex = { workspace = true }
 log = { workspace = true }
 sd-notify = { workspace = true }
+clap = { workspace = true }
 
 [dev-dependencies]
 blitzdb-client = { path = "../blitzdb-client" }
