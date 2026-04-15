@@ -8,6 +8,7 @@ use std::time::Duration;
 use log::{info, warn};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+use blitzdb_common::endpoint::FabricRecvBuffer;
 
 struct ServerConn {
     fi_addr: u64,
@@ -37,7 +38,7 @@ impl BlitzClient {
                 .await?;
         info!("Chitchat started, seed={seed}");
 
-        let endpoint = Arc::new(FabricEndpoint::new()?);
+        let endpoint = Arc::new(FabricEndpoint::new(4096)?);
         let servers: Arc<RwLock<HashMap<String, ServerConn>>> =
             Arc::new(RwLock::new(HashMap::new()));
 
@@ -57,6 +58,10 @@ impl BlitzClient {
             endpoint: self.endpoint.clone(),
             servers: self.servers.clone(),
         }
+    }
+
+    pub fn get_recv_buffer(&'_ self) -> Result<FabricRecvBuffer<'_>> {
+        self.endpoint.get_recv_buffer()
     }
 
     pub async fn shutdown(self) -> anyhow::Result<()> {
@@ -163,7 +168,7 @@ async fn connect_server(
     ep_addr_bytes: &[u8],
 ) -> anyhow::Result<ServerConn> {
     let fi_addr = endpoint.av_insert(ep_addr_bytes)?;
-    let mph_bytes = endpoint.read(fi_addr, mph_mr_key, 0, mph_len).await?;
+    let mph_bytes = endpoint.bulk_read(fi_addr, mph_mr_key, 0, mph_len).await?;
     let mph: Mphf<Vec<u8>> = bincode::deserialize(&mph_bytes)?;
     info!("Fetched MPH ({mph_len} bytes)");
     Ok(ServerConn {
@@ -175,7 +180,7 @@ async fn connect_server(
 }
 
 impl Dataset {
-    pub async fn get(&self, key: &[u8]) -> anyhow::Result<Option<Vec<u8>>> {
+    pub async fn get<'a>(&self, key: &[u8], buf: &mut FabricRecvBuffer<'a>) -> anyhow::Result<Option<&'a [u8]>> {
         let guard = self.servers.read().await;
         let conn = match guard.get(&self.name) {
             Some(c) => c,
@@ -189,22 +194,31 @@ impl Dataset {
         let slot = maybe_slot.unwrap() as usize;
         info!("MPH slot for key: {slot}");
 
-        let entry_sz = size_of::<IndexEntry>();
-        let index_entry = self
-            .endpoint
-            .readT::<IndexEntry>(conn.fi_addr, conn.index_mr_key, (slot * entry_sz) as u64)
-            .await?;
-        info!("Index entry: {index_entry}");
+        let (offset, len) = {
+            let entry_sz = size_of::<IndexEntry>();
+            let index_entry = self
+                .endpoint
+                .read_value::<IndexEntry>(conn.fi_addr, conn.index_mr_key, (slot * entry_sz) as u64, buf)
+                .await?;
+            info!("Index entry: {index_entry}");
 
-        if index_entry.matches(key) == false {
-            return Ok(None);
-        }
+            if index_entry.matches(key) == false {
+                return Ok(None);
+            }
+
+            (index_entry.offset, index_entry.len)
+        };
+
 
         let value_bytes = self
             .endpoint
-            .read(conn.fi_addr, conn.heap_mr_key, index_entry.offset, index_entry.len as usize)
+            .read(conn.fi_addr, conn.heap_mr_key, offset, len as usize, buf)
             .await?;
 
         Ok(Some(value_bytes))
+    }
+
+    pub fn get_recv_buffer(&'_ self) -> Result<FabricRecvBuffer<'_>> {
+        self.endpoint.get_recv_buffer()
     }
 }

@@ -76,6 +76,9 @@ pub enum FabricError {
     /// Remote host is behind a firewall.
     FirewallAddr,
 
+    /// BlitzDB client buffer buffer pool exhausted.
+    BufferPoolExhausted,
+
     /// Any other errno not covered above.
     Unknown(u32),
 }
@@ -127,6 +130,7 @@ impl FabricError {
             Self::NoRx         => crate::ffi::FI_ENORX,
             Self::NoMr         => crate::ffi::FI_ENOMR,
             Self::FirewallAddr => crate::ffi::FI_EFIREWALLADDR,
+            Self::BufferPoolExhausted => 1024,
             Self::Unknown(e)   => *e,
         }
     }
@@ -166,6 +170,7 @@ impl FabricError {
             crate::ffi::FI_ENORX       => Self::NoRx,
             crate::ffi::FI_ENOMR       => Self::NoMr,
             crate::ffi::FI_EFIREWALLADDR => Self::FirewallAddr,
+            1024                              => Self::BufferPoolExhausted,
             other                                 => Self::Unknown(other),
         }
     }
@@ -206,6 +211,7 @@ impl fmt::Display for FabricError {
             Self::NoRx          => write!(f, "no receive buffers available (FI_ENORX)"),
             Self::NoMr          => write!(f, "no memory registrations available (FI_ENOMR)"),
             Self::FirewallAddr  => write!(f, "host unreachable behind firewall (FI_EFIREWALLADDR)"),
+            Self::BufferPoolExhausted => write!(f, "BlitzDB client buffer pool exhausted"),
             Self::Unknown(e)    => write!(f, "unknown libfabric error: {e}"),
         }
     }

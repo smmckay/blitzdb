@@ -11,6 +11,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
+use blitzdb_common::endpoint::FabricRecvBuffer;
 
 /// Locate a workspace binary from the integration test's working directory.
 /// Integration tests run from `target/debug/deps/`; binaries live in `target/debug/`.
@@ -107,6 +108,8 @@ impl Drop for ServerHandle {
 
 #[test]
 fn integration() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
     let dir = TempDir::new().unwrap();
 
     let gossip_port1 = free_udp_port();
@@ -139,32 +142,36 @@ fn integration() {
             .await
             .expect("BlitzClient::connect failed");
 
-        // Wait for the background watcher to discover servers
-        let ds1 = client.dataset("ds1");
-        wait_for_dataset(&ds1, b"hello", Duration::from_secs(10)).await;
+        {
+            let mut recv_buffer = client.get_recv_buffer().expect("get_recv_buffer failed");
 
-        // Query ds1
-        for (key, want) in [("hello", "world"), ("foo", "bar"), ("blitz", "fast"), ("rdma", "network"), ("fast", "speed")] {
-            let value = ds1.get(key.as_bytes()).await.expect("get failed");
-            assert!(value.is_some(), "ds1 lookup '{key}' returned no value");
-            assert_eq!(value.unwrap(), want.as_bytes(), "ds1 lookup '{key}' wrong value");
+            // Wait for the background watcher to discover servers
+            let ds1 = client.dataset("ds1");
+            wait_for_dataset(&ds1, b"hello", Duration::from_secs(10), &mut recv_buffer).await;
+
+            // Query ds1
+            for (key, want) in [("hello", "world"), ("foo", "bar"), ("blitz", "fast"), ("rdma", "network"), ("fast", "speed")] {
+                let value = ds1.get(key.as_bytes(), &mut recv_buffer).await.expect("get failed");
+                assert!(value.is_some(), "ds1 lookup '{key}' returned no value");
+                assert_eq!(value.unwrap(), want.as_bytes(), "ds1 lookup '{key}' wrong value");
+            }
+            let value = ds1.get(b"nonexistent", &mut recv_buffer).await.expect("get failed");
+            assert!(value.is_none(), "ds1 lookup 'nonexistent' returned a value");
+
+            // Query ds2
+            let ds2 = client.dataset("ds2");
+            wait_for_dataset(&ds2, b"alpha", Duration::from_secs(10), &mut recv_buffer).await;
+
+            for (key, want) in [("alpha", "one"), ("beta", "two"), ("gamma", "three")] {
+                let value = ds2.get(key.as_bytes(), &mut recv_buffer).await.expect("get failed");
+                assert!(value.is_some(), "ds2 lookup '{key}' returned no value");
+                assert_eq!(value.unwrap(), want.as_bytes(), "ds2 lookup '{key}' wrong value");
+            }
+
+            // ds1 keys should not exist in ds2
+            let value = ds2.get(b"hello", &mut recv_buffer).await.expect("get failed");
+            assert!(value.is_none(), "ds2 should not contain ds1 key 'hello'");
         }
-        let value = ds1.get(b"nonexistent").await.expect("get failed");
-        assert!(value.is_none(), "ds1 lookup 'nonexistent' returned a value");
-
-        // Query ds2
-        let ds2 = client.dataset("ds2");
-        wait_for_dataset(&ds2, b"alpha", Duration::from_secs(10)).await;
-
-        for (key, want) in [("alpha", "one"), ("beta", "two"), ("gamma", "three")] {
-            let value = ds2.get(key.as_bytes()).await.expect("get failed");
-            assert!(value.is_some(), "ds2 lookup '{key}' returned no value");
-            assert_eq!(value.unwrap(), want.as_bytes(), "ds2 lookup '{key}' wrong value");
-        }
-
-        // ds1 keys should not exist in ds2
-        let value = ds2.get(b"hello").await.expect("get failed");
-        assert!(value.is_none(), "ds2 should not contain ds1 key 'hello'");
 
         client.shutdown().await.expect("shutdown failed");
     });
@@ -172,6 +179,8 @@ fn integration() {
 
 #[test]
 fn late_join() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
     let dir = TempDir::new().unwrap();
 
     let gossip_port1 = free_udp_port();
@@ -194,41 +203,44 @@ fn late_join() {
         let client = BlitzClient::connect(&seed, client_gossip_port)
             .await
             .expect("BlitzClient::connect failed");
+        {
+            let mut recv_buffer = client.get_recv_buffer().expect("get_recv_buffer failed");
 
-        // ds_late doesn't exist yet — get() should return Ok(None)
-        let ds_late = client.dataset("ds_late");
-        let value = ds_late.get(b"alpha").await.expect("get failed");
-        assert!(value.is_none(), "ds_late should return None before server is up");
+            // ds_late doesn't exist yet — get() should return Ok(None)
+            let ds_late = client.dataset("ds_late");
+            let value = ds_late.get(b"alpha", &mut recv_buffer).await.expect("get failed");
+            assert!(value.is_none(), "ds_late should return None before server is up");
 
-        // Now start a server publishing ds_late
-        let gossip_port2 = free_udp_port();
-        let _server2 = ServerHandle::spawn(
-            &dir,
-            vec![b"alpha", b"beta"],
-            vec![b"one", b"two"],
-            "ds_late",
-            gossip_port2,
-            Some(gossip_port1),
-        );
+            // Now start a server publishing ds_late
+            let gossip_port2 = free_udp_port();
+            let _server2 = ServerHandle::spawn(
+                &dir,
+                vec![b"alpha", b"beta"],
+                vec![b"one", b"two"],
+                "ds_late",
+                gossip_port2,
+                Some(gossip_port1),
+            );
 
-        // Poll until the watcher picks up the new server
-        wait_for_dataset(&ds_late, b"alpha", Duration::from_secs(10)).await;
+            // Poll until the watcher picks up the new server
+            wait_for_dataset(&ds_late, b"alpha", Duration::from_secs(10), &mut recv_buffer).await;
 
-        let value = ds_late.get(b"alpha").await.expect("get failed");
-        assert_eq!(value.unwrap(), b"one");
+            let value = ds_late.get(b"alpha", &mut recv_buffer).await.expect("get failed");
+            assert_eq!(value.unwrap(), b"one");
 
-        let value = ds_late.get(b"beta").await.expect("get failed");
-        assert_eq!(value.unwrap(), b"two");
+            let value = ds_late.get(b"beta", &mut recv_buffer).await.expect("get failed");
+            assert_eq!(value.unwrap(), b"two");
+        }
 
         client.shutdown().await.expect("shutdown failed");
     });
 }
 
 /// Poll until a dataset returns a value for the given key, or panic after timeout.
-async fn wait_for_dataset(ds: &blitzdb_client::Dataset, key: &[u8], timeout: Duration) {
+async fn wait_for_dataset(ds: &blitzdb_client::Dataset, key: &[u8], timeout: Duration, recv_buffer: &mut FabricRecvBuffer<'_>) {
     let start = tokio::time::Instant::now();
     loop {
-        if let Ok(Some(_)) = ds.get(key).await {
+        if let Ok(Some(_)) = ds.get(key, recv_buffer).await {
             return;
         }
         if start.elapsed() > timeout {

@@ -146,8 +146,9 @@ impl Drop for ServerHandle {
 async fn wait_for_dataset(ds: &blitzdb_client::Dataset, timeout: Duration) {
     let key = gen_key(0);
     let start = tokio::time::Instant::now();
+    let mut buf = ds.get_recv_buffer().expect("get_recv_buffer");
     loop {
-        if let Ok(Some(_)) = ds.get(&key).await {
+        if let Ok(Some(_)) = ds.get(&key, &mut buf).await {
             return;
         }
         if start.elapsed() > timeout {
@@ -205,8 +206,10 @@ fn loadtest() {
             let ds = client.dataset("load");
             let stop = stop.clone();
             let counter = counters[task_id].clone();
+
             handles.push(tokio::spawn(async move {
                 let mut rng = SmallRng::seed_from_u64(1000 + task_id as u64);
+                let mut buf = ds.get_recv_buffer().expect("get_recv_buffer");
                 while !stop.load(Ordering::Relaxed) {
                     let hit = rng.random_bool(0.5);
                     let index: u64 = rng.random_range(0..NUM_KEYS);
@@ -215,7 +218,7 @@ fn loadtest() {
                     } else {
                         gen_key(index + NUM_KEYS)
                     };
-                    let _ = ds.get(&key).await;
+                    let _ = ds.get(&key, &mut buf).await;
                     counter.fetch_add(1, Ordering::Relaxed);
                 }
             }));

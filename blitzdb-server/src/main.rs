@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Loaded MPH: {} bytes", mph_data.len());
 
     // Initialize libfabric. FabricEndpoint owns the resources and starts the CQ driver.
-    let endpoint = FabricEndpoint::new()?;
+    let endpoint = FabricEndpoint::new(4096)?;
     info!("Libfabric initialized (tcp provider, RDM endpoint, RMA enabled)");
 
     // Register memory regions (read-only for remote clients).
