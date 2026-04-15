@@ -2,14 +2,12 @@ use std::collections::VecDeque;
 use std::ffi::{c_int, c_void};
 use std::ptr;
 use crate::op::Op;
-use ofi_libfabric_sys::{bindgen as ffi, bindgen};
+use ofi_libfabric_sys::bindgen as ffi;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use anyhow::Context;
-use crate::{FabricError, FabricMrGuard};
+use crate::FabricError;
 use log::{error};
-use crate::buffer_pool::BufferPool;
 use crate::driver::SendResult::{Failed, Sent, WillRetry};
 
 /// Drives a libfabric completion queue on a dedicated polling thread.
@@ -21,8 +19,6 @@ pub(crate) struct CqDriver {
     stop: Arc<AtomicBool>,
     _thread: Option<JoinHandle<()>>,
     pub tx: tokio::sync::mpsc::Sender<Request>,
-    buffer_pool: BufferPool,
-    buffer_mr: *mut ffi::fid_mr,
 }
 
 pub (crate) const CQ_SIZE: usize = 1024;
@@ -80,7 +76,7 @@ enum SendResult {
 
 impl CqDriver {
     /// Spawn the polling thread for the given CQ.
-    pub(crate) fn spawn(cq: *mut ffi::fid_cq, buffer_pool: BufferPool, buffer_mr: *mut ffi::fid_mr) -> anyhow::Result<Self> {
+    pub(crate) fn spawn(cq: *mut ffi::fid_cq) -> anyhow::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = Arc::clone(&stop);
         let cq_addr = cq as usize;
@@ -91,7 +87,7 @@ impl CqDriver {
             .name("cq-poller".into())
             .spawn(move || {
                 let cq = cq_addr as *mut ffi::fid_cq;
-                let mut cq_buf: [ffi::fi_cq_data_entry; CQ_SIZE] = unsafe { std::mem::zeroed() };
+                let mut cq_buf: [ffi::fi_cq_entry; CQ_SIZE] = unsafe { std::mem::zeroed() };
                 let mut retry_q: VecDeque<Request> = VecDeque::new();
                 let mut in_flight: usize = 0;
 
@@ -167,7 +163,7 @@ impl CqDriver {
             })
             .expect("Failed to spawn CQ polling thread");
 
-        Ok(CqDriver { stop, _thread: Some(handle), tx, buffer_pool, buffer_mr })
+        Ok(CqDriver { stop, _thread: Some(handle), tx })
     }
 
     pub(crate) fn stop(&mut self) {

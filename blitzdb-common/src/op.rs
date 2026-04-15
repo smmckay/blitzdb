@@ -27,7 +27,6 @@ pub(crate) struct Op {
     pub waker: Mutex<Option<Waker>>,
     /// 0 = pending, 1 = ok, negative = -errno from CQ error.
     pub result: AtomicI32,
-    pub buf_ptr: *mut u8,
 }
 
 // SAFETY: The fi_context field is written only by the provider (single thread),
@@ -41,7 +40,6 @@ impl Op {
             ctx: UnsafeCell::new(unsafe { std::mem::zeroed() }),
             waker: Mutex::new(None),
             result: AtomicI32::new(RESULT_PENDING),
-            buf_ptr: std::ptr::null_mut(),
         })
     }
 

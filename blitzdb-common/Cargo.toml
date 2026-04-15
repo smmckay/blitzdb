@@ -13,3 +13,4 @@ env_logger = { workspace = true }
 twox-hash = {workspace = true}
 tokio = { workspace = true }
 log = { workspace = true }
+crossbeam-queue = { workspace = true }

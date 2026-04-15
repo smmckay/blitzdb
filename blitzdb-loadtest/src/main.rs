@@ -11,8 +11,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use parquet::basic::{Compression, ZstdLevel};
-use parquet::file::properties::WriterProperties;
 
 const NUM_KEYS: u64 = 100_000_000;
 const BATCH_SIZE: u64 = 1_000_000;
@@ -45,10 +43,7 @@ fn write_load_parquet(path: &Path) {
         Field::new("value", DataType::Binary, false),
     ]));
     let file = File::create(path).unwrap();
-    let props = WriterProperties::builder()
-        .set_compression(Compression::ZSTD(ZstdLevel::default()))
-        .build();
-    let mut writer = ArrowWriter::try_new(file, schema.clone(), Some(props)).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema.clone(), None).unwrap();
 
     let mut batch_start = 0u64;
     while batch_start < NUM_KEYS {
@@ -95,8 +90,9 @@ fn free_udp_port() -> u16 {
 async fn wait_for_dataset(ds: &blitzdb_client::Dataset, timeout: Duration) {
     let key = gen_key(0);
     let start = tokio::time::Instant::now();
+    let mut buf = ds.get_recv_buffer().expect("get_recv_buffer");
     loop {
-        if let Ok(Some(_)) = ds.get(&key).await {
+        if let Ok(Some(_)) = ds.get(&key, &mut buf).await {
             return;
         }
         if start.elapsed() > timeout {
@@ -130,6 +126,7 @@ async fn run_loadtest(seed: &str) -> anyhow::Result<()> {
         let counter = counters[task_id].clone();
         handles.push(tokio::spawn(async move {
             let mut rng = SmallRng::seed_from_u64(1000 + task_id as u64);
+            let mut buf = ds.get_recv_buffer().expect("get_recv_buffer");
             while !stop.load(Ordering::Relaxed) {
                 let hit = rng.random_bool(0.5);
                 let index: u64 = rng.random_range(0..NUM_KEYS);
@@ -138,7 +135,7 @@ async fn run_loadtest(seed: &str) -> anyhow::Result<()> {
                 } else {
                     gen_key(index + NUM_KEYS)
                 };
-                let _ = ds.get(&key).await;
+                let _ = ds.get(&key, &mut buf).await;
                 counter.fetch_add(1, Ordering::Relaxed);
             }
         }));

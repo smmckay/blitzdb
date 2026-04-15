@@ -27,7 +27,7 @@ arrow-array = "58"
 arrow-schema = "58"
 tempfile = "3"
 rand = "0.9"
-clap = { version = "4", features = ["derive", "env"] }
+crossbeam-queue = "0.3.12"
 
 [profile.release]
 debug = "full"
