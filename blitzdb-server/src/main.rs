@@ -59,8 +59,11 @@ async fn main() -> anyhow::Result<()> {
     let initial_key_values = vec![
         (KEY_DATASET.to_string(), dataset.clone()),
         (KEY_INDEX_MR_KEY.to_string(), index_mr_key.to_string()),
+        (KEY_INDEX_MR_ADDR.to_string(), index_mr_guard.addr.to_string()),
         (KEY_HEAP_MR_KEY.to_string(), heap_mr_key.to_string()),
+        (KEY_HEAP_MR_ADDR.to_string(), heap_mr_guard.addr.to_string()),
         (KEY_MPH_MR_KEY.to_string(), mph_mr_key.to_string()),
+        (KEY_MPH_MR_ADDR.to_string(), mph_mr_guard.addr.to_string()),
         (KEY_MPH_LEN.to_string(), mph_data.len().to_string()),
         (KEY_NUM_KEYS.to_string(), n.to_string()),
         (KEY_EP_ADDR.to_string(), hex::encode(&ep_addr)),

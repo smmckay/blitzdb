@@ -21,8 +21,8 @@ const RESULT_OK: i32 = 1;
 /// reconstructs the `Arc<Op>` — no HashMap required.
 #[repr(C)]
 pub(crate) struct Op {
-    /// Opaque storage for the provider in FI_CONTEXT mode. Must be first.
-    pub ctx: UnsafeCell<ffi::fi_context>,
+    /// Opaque storage for the provider in FI_CONTEXT2 mode. Must be first.
+    pub ctx: UnsafeCell<ffi::fi_context2>,
     /// Waker stored by the Future; called by the polling thread on completion.
     pub waker: Mutex<Option<Waker>>,
     /// 0 = pending, 1 = ok, negative = -errno from CQ error.

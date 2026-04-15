@@ -5,7 +5,7 @@ use crate::op::{Op, ReadFuture};
 use anyhow::Context;
 use log::info;
 use ofi_libfabric_sys::bindgen as ffi;
-use std::ffi::CString;
+use std::ffi::{c_int, CString};
 use std::ptr;
 
 /// Wraps a libfabric endpoint with async read/write operations.
@@ -36,6 +36,7 @@ pub struct FabricMrGuard<'a> {
     mr: *mut ffi::fid_mr,
     pub mr_key: u64,
     _mr_buf: &'a [u8],
+    pub addr: usize,
 }
 
 impl Drop for FabricMrGuard<'_> {
@@ -181,6 +182,10 @@ impl FabricEndpoint {
         }
     }
 
+    fn is_mr_virt_addr(&self) -> bool {
+        unsafe { (*(*self.info).domain_attr).mr_mode & (ffi::FI_MR_VIRT_ADDR as i32) > 0 }
+    }
+
     pub fn mr_reg<'a>(
         &self,
         key: u64,
@@ -202,10 +207,12 @@ impl FabricEndpoint {
             )
         })
         .map(|_| unsafe { ffi::fi_mr_key(mr) })?;
+
         Ok(FabricMrGuard {
             mr,
             mr_key,
             _mr_buf: buf,
+            addr: if self.is_mr_virt_addr() { buf.as_ptr() as usize } else { 0 },
         })
     }
 
@@ -324,18 +331,16 @@ impl FabricEndpoint {
 
             (*hints).caps = (ffi::FI_MSG | ffi::FI_RMA) as u64;
             (*(*hints).ep_attr).type_ = ffi::fi_ep_type_FI_EP_RDM;
-            (*(*hints).domain_attr).mr_mode = 0;
+            (*(*hints).domain_attr).resource_mgmt = ffi::fi_resource_mgmt_FI_RM_ENABLED;
+            (*(*hints).domain_attr).threading = ffi::fi_threading_FI_THREAD_DOMAIN;
+            (*(*hints).domain_attr).mr_mode = (ffi::FI_MR_LOCAL | ffi::FI_MR_ALLOCATED | ffi::FI_MR_PROV_KEY | ffi::FI_MR_VIRT_ADDR) as c_int;
             let prov_name = CString::new(provider)?;
             (*(*hints).fabric_attr).prov_name = prov_name.into_raw() as *mut i8;
+            (*hints).mode = ffi::FI_CONTEXT2;
 
             let mut info = ptr::null_mut();
             let ret = FabricError::from_ret(ffi::fi_getinfo(
-                version,
-                ptr::null(),
-                ptr::null(),
-                0,
-                hints,
-                &mut info,
+                version, ptr::null(), ptr::null(), 0, hints, &mut info,
             ));
             ffi::fi_freeinfo(hints);
             ret.context(format!("fi_getinfo({provider})"))?;
