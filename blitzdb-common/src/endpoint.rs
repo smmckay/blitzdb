@@ -2,7 +2,7 @@ use crate::FabricError;
 use crate::driver::CQ_SIZE;
 use crate::driver::{CqDriver, Request};
 use crate::op::{Op, ReadFuture};
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use log::info;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::ffi::{c_int, CString};
@@ -63,13 +63,11 @@ unsafe impl Send for FabricRecvBuffer<'_> {}
 impl FabricEndpoint {
     pub fn new(max_read_size: usize) -> anyhow::Result<Self> {
         unsafe {
-            let version = ffi::fi_version();
-            let info = Self::getinfo(version, "efa")
-                .or_else(|efa_err| {
-                    info!("EFA provider unavailable ({efa_err:#}), falling back to TCP");
-                    Self::getinfo(version, "tcp;ofi_rxm")
-                })
-                .context("fi_getinfo: no usable provider (tried efa, tcp)")?;
+            let info = Self::try_providers(vec![
+                "efa",
+                "verbs;ofi_rxm",
+                "tcp;ofi_rxm"
+            ])?;
             let prov = std::ffi::CStr::from_ptr((*(*info).fabric_attr).prov_name);
             info!("Using provider: {}", prov.to_string_lossy());
 
@@ -159,6 +157,23 @@ impl FabricEndpoint {
                 _driver,
             })
         }
+    }
+
+    unsafe fn try_providers(providers: Vec<&str>) -> anyhow::Result<*mut ffi::fi_info> {
+        unsafe {
+            let version = ffi::fi_version();
+
+            for provider in providers {
+                match Self::getinfo(version, provider) {
+                    Ok(info) => return Ok(info),
+                    Err(err) => {
+                        info!("Provider {provider} unavailable ({err:#})");
+                    }
+                }
+            }
+        }
+
+        Err(anyhow!("All providers have been exhausted"))
     }
 
     /// Insert a remote endpoint address into the address vector.
