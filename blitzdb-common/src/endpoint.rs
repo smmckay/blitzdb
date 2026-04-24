@@ -139,6 +139,7 @@ impl FabricEndpoint {
                 ptr::null_mut(),
             ))?;
             let buffer_desc = ffi::fi_mr_desc(buffer_mr);
+            eprintln!("{:?}", buffer_desc);
 
             let buffer_q = crossbeam_queue::ArrayQueue::new(CQ_SIZE);
             for i in 0..CQ_SIZE {
