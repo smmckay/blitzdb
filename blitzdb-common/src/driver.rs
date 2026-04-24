@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::ffi::{c_int, c_void};
-use std::ptr;
 use crate::op::Op;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::sync::atomic::{AtomicBool, Ordering};
