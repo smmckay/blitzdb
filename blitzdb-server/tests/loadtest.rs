@@ -4,7 +4,7 @@ use arrow_schema::{DataType, Field, Schema};
 use blitzdb_client::BlitzClient;
 use parquet::arrow::ArrowWriter;
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use std::fs::File;
 use std::net::UdpSocket;
 use std::os::unix::net::UnixDatagram;
