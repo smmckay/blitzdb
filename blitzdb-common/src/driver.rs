@@ -30,6 +30,7 @@ pub(crate) enum Request {
         ep: usize, // *mut ffi::fid_ep
         buf_ptr: usize, // *mut c_void,
         len: usize,
+        buf_desc: usize,
         fi_addr: u64,
         remote_offset: u64,
         mr_key: u64,
@@ -40,12 +41,13 @@ impl Request {
     fn try_send(self, retry_q: &mut VecDeque<Request>) -> SendResult {
         match self {
             Request::Read {
-                op, ep, buf_ptr, len, fi_addr, remote_offset, mr_key,
+                op, ep, buf_ptr, len, buf_desc, fi_addr, remote_offset, mr_key,
             } => {
                 let op_ptr = Arc::into_raw(op);
                 let ep = ep as *mut ffi::fid_ep;
                 let buf_ptr = buf_ptr as *mut c_void;
-                match FabricError::from_ret(unsafe { ffi::fi_read(ep, buf_ptr, len, ptr::null_mut(), fi_addr, remote_offset, mr_key, op_ptr as *mut _) as c_int }) {
+                let desc_ptr = buf_desc as *mut c_void;
+                match FabricError::from_ret(unsafe { ffi::fi_read(ep, buf_ptr, len, desc_ptr, fi_addr, remote_offset, mr_key, op_ptr as *mut _) as c_int }) {
                     Err(FabricError::Again) => {
                         let op = unsafe {
                             Arc::from_raw(op_ptr)
@@ -53,7 +55,7 @@ impl Request {
                         let ep = ep as usize;
                         let buf_ptr = buf_ptr as usize;
                         retry_q.push_back(Request::Read {
-                            op, ep, buf_ptr, len, fi_addr, remote_offset, mr_key,
+                            op, ep, buf_ptr, len, buf_desc,  fi_addr, remote_offset, mr_key,
                         });
                         WillRetry
                     },

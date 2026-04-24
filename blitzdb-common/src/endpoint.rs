@@ -6,6 +6,7 @@ use anyhow::{anyhow, Context};
 use log::info;
 use ofi_libfabric_sys::bindgen as ffi;
 use std::ffi::{c_int, CString};
+use std::os::raw::c_void;
 use std::ptr;
 
 /// Wraps a libfabric endpoint with async read/write operations.
@@ -23,7 +24,7 @@ pub struct FabricEndpoint {
     buffer_mr: *mut ffi::fid_mr,
     buffer_ptr: *mut u8,
     buffer_len: usize,
-    buffer_q: crossbeam_queue::ArrayQueue<*mut u8>,
+    buffer_q: crossbeam_queue::ArrayQueue<(*mut u8, *mut c_void)>,
     _driver: CqDriver,
 }
 
@@ -49,12 +50,13 @@ impl Drop for FabricMrGuard<'_> {
 
 pub struct FabricRecvBuffer<'a> {
     buf: *mut u8,
+    desc: *mut c_void,
     ep: &'a FabricEndpoint,
 }
 
 impl Drop for FabricRecvBuffer<'_> {
     fn drop(&mut self) {
-        self.ep.put_recv_buffer(self.buf);
+        self.ep.put_recv_buffer(self.buf, self.desc);
     }
 }
 
@@ -136,10 +138,11 @@ impl FabricEndpoint {
                 &mut buffer_mr,
                 ptr::null_mut(),
             ))?;
+            let buffer_desc = ffi::fi_mr_desc(buffer_mr);
 
             let buffer_q = crossbeam_queue::ArrayQueue::new(CQ_SIZE);
             for i in 0..CQ_SIZE {
-                buffer_q.push(buffer_ptr.add(i * max_read_size)).unwrap();
+                buffer_q.push((buffer_ptr.add(i * max_read_size), buffer_desc)).unwrap();
             }
 
             Ok(FabricEndpoint {
@@ -249,15 +252,15 @@ impl FabricEndpoint {
     }
 
     pub fn get_recv_buffer(&self) -> Result<FabricRecvBuffer<'_>, FabricError> {
-        let buf = self
+        let buf_and_desc = self
             .buffer_q
             .pop()
             .ok_or(FabricError::BufferPoolExhausted)?;
-        Ok(FabricRecvBuffer { buf, ep: self })
+        Ok(FabricRecvBuffer { buf: buf_and_desc.0, desc: buf_and_desc.1, ep: self })
     }
 
-    fn put_recv_buffer(&self, buf: *mut u8) {
-        self.buffer_q.push(buf).unwrap();
+    fn put_recv_buffer(&self, buf: *mut u8, desc: *mut c_void) {
+        self.buffer_q.push((buf, desc)).unwrap();
     }
 
     pub async fn bulk_read(
@@ -328,6 +331,7 @@ impl FabricEndpoint {
                 ep: self.ep as usize,
                 buf_ptr: buf.buf as usize,
                 len,
+                buf_desc: buf.desc as usize,
                 fi_addr,
                 remote_offset,
                 mr_key,
