@@ -29,5 +29,15 @@ tempfile = "3"
 rand = "0.10"
 crossbeam-queue = "0.3"
 
+[workspace.lints.clippy]
+correctness = "deny"
+perf = "deny"
+complexity = "warn"
+style = "warn"
+suspicious = "warn"
+
 [profile.release]
 debug = "full"
+lto = "fat"
+codegen-units = 1
+split-debuginfo = "packed"
