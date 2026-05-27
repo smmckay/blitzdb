@@ -11,7 +11,7 @@ readme = "README.md"
 [workspace.dependencies]
 anyhow = "1.0"
 ofi-libfabric-sys = { git = "https://github.com/ofiwg/libfabric", rev = "f5d730cbe713cb886ef0f1e0901f85ce228e47ea" }
-chitchat = "0.10"
+chitchat = "0.11"
 tokio = { version = "1", features = ["full"] }
 hex = "0.4"
 log = "0.4"
