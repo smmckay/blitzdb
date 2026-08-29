@@ -26,6 +26,7 @@ pub async fn start_chitchat(service: &str, listen_addr: std::net::SocketAddr, se
         marked_for_deletion_grace_period: Duration::from_secs(60),
         catchup_callback: None,
         extra_liveness_predicate: None,
+        protocol_version: chitchat::ProtocolVersion::V1,
     };
     chitchat::spawn_chitchat(config, initial_key_values, &UdpTransport)
         .await

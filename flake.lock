@@ -11,8 +11,8 @@
       },
       "original": {
         "owner": "NixOS",
+        "ref": "release-26.05",
         "repo": "nixpkgs",
-        "rev": "59fe411b672701ae3a2afc897026457062674050",
         "type": "github"
       }
     },

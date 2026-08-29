@@ -14,7 +14,6 @@
       pkgs = import nixpkgs { inherit system; };
     in {
       default = pkgs.mkShell {
-        defaultShell = pkgs.zsh;
         nativeBuildInputs = with pkgs; [
           pkgconf
           libfabric
