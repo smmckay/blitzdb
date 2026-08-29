@@ -91,7 +91,7 @@ fn spawn_watcher(
             {
                 let guard = chitchat.lock().await;
                 for node_id in guard.live_nodes() {
-                    let id_str = node_id.node_id.clone();
+                    let id_str = node_id.node_id.as_ref().to_string();
                     live_node_ids.insert(id_str.clone());
 
                     if known_nodes.contains_key(&id_str) {
