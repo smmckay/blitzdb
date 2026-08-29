@@ -7,3 +7,6 @@ updates:
     ignore:
       - dependency-name: "bincode"
         update_types: [ "version-update:semver-major" ]
+  - package-ecosystem: "uv"
+    directory: "/"
+    exclude-paths: "**/*"
